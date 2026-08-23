@@ -1,6 +1,8 @@
 import express, {type Express} from "express";
 import cors from "cors";
 import helmet from "helmet";
+import PinoHttp, { pinoHttp } from "pino-http";
+import { logger } from "./lib/logger.js";
 
 export const createApp = ():Express =>{
     const app = express();
@@ -22,6 +24,22 @@ export const createApp = ():Express =>{
             limit:"1mb"
         }
     ))
+
+    app.use(
+        pinoHttp({
+            logger,
+
+            redact:{
+                paths:[
+                    "req.headers.authorization",
+                    "req.headers.cookie",
+                    "req.headers.x-api-key",
+                    "res.headers.set-cookie",
+                ],
+                censor:"[REDACTED]",
+            }
+        })
+    );
     
     app.get("/health" , (req, res)=>{
         res.status(200).json({
