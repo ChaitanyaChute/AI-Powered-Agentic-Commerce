@@ -12,3 +12,27 @@ const server =  app.listen(env.API_PORT,env.API_HOST, () =>{
     "API server started",
 );
 });
+
+function shutdown(signal:string){
+    logger.info({
+        signal,
+    },
+    "shutdown signal received",
+    );
+    
+    server.close((error)=>{
+        if(error){
+            logger.error({
+                err:error,
+            },
+            "Error during shutting down server"
+            )
+            process.exit(1);
+        }
+        logger.info("API server stopped");
+        process.exit(0);
+    });
+}
+
+process.on("SIGTERM",()=>shutdown("SIGTERM"));
+process.on("SIGINT",()=>shutdown("SIGINT"));
