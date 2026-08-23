@@ -1,8 +1,11 @@
 import express, {type Express} from "express";
 import cors from "cors";
 import helmet from "helmet";
-import PinoHttp, { pinoHttp } from "pino-http";
-import { logger } from "./lib/logger.js";
+import { pinoHttp } from "pino-http";
+import { logger} from "./lib/logger.js";
+import {requestId} from "./middleware/request-id.js";
+import {errorHandler} from "./middleware/error-handler.js";
+
 
 export const createApp = ():Express =>{
     const app = express();
@@ -25,6 +28,8 @@ export const createApp = ():Express =>{
         }
     ))
 
+    app.use(requestId)
+
     app.use(
         pinoHttp({
             logger,
@@ -37,7 +42,18 @@ export const createApp = ():Express =>{
                     "res.headers.set-cookie",
                 ],
                 censor:"[REDACTED]",
-            }
+            },
+
+                customLogLevel:(req,res, err)=>{
+                    if(err || res.statusCode >= 500){
+                        return "error";
+                    }
+                    if(res.statusCode >= 400){
+                        return "warn";
+                    }
+
+                    return "info";
+                }
         })
     );
     
@@ -46,6 +62,8 @@ export const createApp = ():Express =>{
             "status":"ok"
         })
     })
+
+    app.use(errorHandler)
 
     return app;
 }
