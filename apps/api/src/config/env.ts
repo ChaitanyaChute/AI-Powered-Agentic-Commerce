@@ -31,7 +31,7 @@ const envSchema = z.object({
 
     LLM_MODEL : z.string().optional(),
 
-    LOG_INFO : z.enum(["info","fatal","error","warn","trace","debug"]).default("info") 
+    LOG_LEVEL : z.enum(["info","fatal","error","warn","trace","debug"]).default("info") 
 });
 
 const env_parsed = envSchema.safeParse(process.env)

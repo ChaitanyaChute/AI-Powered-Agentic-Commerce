@@ -5,6 +5,7 @@ import { pinoHttp } from "pino-http";
 import { logger} from "./lib/logger.js";
 import {requestId} from "./middleware/request-id.js";
 import {errorHandler} from "./middleware/error-handler.js";
+import { healthRoutes } from "./modules/health/index.js";
 
 
 export const createApp = ():Express =>{
@@ -57,11 +58,7 @@ export const createApp = ():Express =>{
         })
     );
     
-    app.get("/health" , (req, res)=>{
-        res.status(200).json({
-            "status":"ok"
-        })
-    })
+    app.use(healthRoutes);
 
     app.use(errorHandler)
 
