@@ -26,6 +26,9 @@ importers:
       '@repo/database':
         specifier: workspace:*
         version: link:../../packages/database
+      '@repo/queues':
+        specifier: workspace:^
+        version: link:../../packages/queues
       '@repo/typescript-config':
         specifier: workspace:*
         version: link:../../packages/typescript-config

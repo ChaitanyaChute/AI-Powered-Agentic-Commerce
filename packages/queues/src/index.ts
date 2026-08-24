@@ -1,2 +1,2 @@
-export { createRedisConnection } from "./connection.js";
+export type {RedisConnectionConfig,} from "./connection.js";
 export { createExampleQueue } from "./example.queue.js";
