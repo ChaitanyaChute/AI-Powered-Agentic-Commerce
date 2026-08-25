@@ -3,3 +3,4 @@ export {ProductRepository,} from "./repositories/product.repository.js";
 export {InventoryRepository} from "./repositories/inventory.repository.js";
 export {CustomerRepository,} from "./repositories/customer.repository.js";
 export {CartRepository} from "./repositories/cart.repository.js";
+export {CartItemRepository} from "./repositories/cart-item.repository.js";
