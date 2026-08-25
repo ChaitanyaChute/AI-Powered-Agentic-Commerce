@@ -1,4 +1,4 @@
-import {OrderItemRepository,OrderRepository, CartItemRepository,CartRepository,disconnectDatabase,InventoryRepository,ProductRepository,CustomerRepository} from "./index.js";
+import {PaymentRepository,OrderItemRepository,OrderRepository, CartItemRepository,CartRepository,disconnectDatabase,InventoryRepository,ProductRepository,CustomerRepository} from "./index.js";
 
 async function main(): Promise<void> {
   const productRepository = new ProductRepository();
@@ -8,6 +8,7 @@ async function main(): Promise<void> {
   const cartItemRepository = new CartItemRepository();
   const orderRepository = new OrderRepository();
   const orderItemRepository = new OrderItemRepository();
+  const paymentRepository = new PaymentRepository();
 
   const products = await productRepository.listActive();
 
@@ -44,6 +45,13 @@ if (firstProduct) {
   );
 
   const orderItems = await orderItemRepository.listByOrderId("00000000-0000-0000-0000-000000000000");
+
+  const payment = await paymentRepository.findByProviderPaymentId("smoke-test-payment");
+
+  console.log(
+     "Payment repository: OK",
+      payment ? "payment found" : "no payment",
+  );  
 
   console.log(
    "Order item repository: OK",
