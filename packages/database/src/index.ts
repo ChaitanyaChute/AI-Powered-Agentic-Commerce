@@ -1,1 +1,1 @@
-export { prisma } from "./client.js";
+export { prisma,connectDatabase,disconnectDatabase,checkDatabaseConnection} from "./client.js";
