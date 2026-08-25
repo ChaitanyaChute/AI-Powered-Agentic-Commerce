@@ -16,7 +16,8 @@
     "migrate": "prisma migrate dev",
     "seed": "tsx prisma/seed.ts",
     "typecheck": "tsc --noEmit",
-    "check-db": "tsx src/check-connection.ts"
+    "check-db": "tsx src/check-connection.ts",
+    "check-repository": "tsx src/check-repository.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
