@@ -1,9 +1,10 @@
-import {disconnectDatabase,InventoryRepository,ProductRepository,CustomerRepository} from "./index.js";
+import { CartRepository,disconnectDatabase,InventoryRepository,ProductRepository,CustomerRepository} from "./index.js";
 
 async function main(): Promise<void> {
   const productRepository = new ProductRepository();
   const inventoryRepository = new InventoryRepository();
   const customerRepository = new CustomerRepository();
+  const cartRepository = new CartRepository();
 
   const products = await productRepository.listActive();
 
@@ -27,9 +28,14 @@ if (firstProduct) {
   );
   }
 
-  const customer = await customerRepository.findByEmail(
-  "smoke-test@example.com",
-    );
+  const customer = await customerRepository.findByEmail("smoke-test@example.com");
+
+  const cart = await cartRepository.findActiveByCustomerId("00000000-0000-0000-0000-000000000000");
+
+  console.log(
+   "Cart repository: OK",
+   cart ? "active cart found" : "no active cart",
+  );
 
 console.log(
   "Customer repository:OK",
