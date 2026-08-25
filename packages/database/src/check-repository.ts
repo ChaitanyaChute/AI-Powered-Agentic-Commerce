@@ -1,4 +1,4 @@
-import {OrderRepository, CartItemRepository,CartRepository,disconnectDatabase,InventoryRepository,ProductRepository,CustomerRepository} from "./index.js";
+import {OrderItemRepository,OrderRepository, CartItemRepository,CartRepository,disconnectDatabase,InventoryRepository,ProductRepository,CustomerRepository} from "./index.js";
 
 async function main(): Promise<void> {
   const productRepository = new ProductRepository();
@@ -7,6 +7,7 @@ async function main(): Promise<void> {
   const cartRepository = new CartRepository();
   const cartItemRepository = new CartItemRepository();
   const orderRepository = new OrderRepository();
+  const orderItemRepository = new OrderItemRepository();
 
   const products = await productRepository.listActive();
 
@@ -40,6 +41,13 @@ if (firstProduct) {
 
   const order = await orderRepository.findByOrderNumber(
   "SMOKE-TEST-ORDER"
+  );
+
+  const orderItems = await orderItemRepository.listByOrderId("00000000-0000-0000-0000-000000000000");
+
+  console.log(
+   "Order item repository: OK",
+   `items found: ${orderItems.length}`,
   );
 
   console.log(
