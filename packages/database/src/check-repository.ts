@@ -1,8 +1,9 @@
-import {disconnectDatabase,InventoryRepository,ProductRepository,} from "./index.js";
+import {disconnectDatabase,InventoryRepository,ProductRepository,CustomerRepository} from "./index.js";
 
 async function main(): Promise<void> {
   const productRepository = new ProductRepository();
   const inventoryRepository = new InventoryRepository();
+  const customerRepository = new CustomerRepository();
 
   const products = await productRepository.listActive();
 
@@ -25,6 +26,15 @@ if (firstProduct) {
     "Inventory repository: READY (no products to test against)",
   );
   }
+
+  const customer = await customerRepository.findByEmail(
+  "smoke-test@example.com",
+    );
+
+console.log(
+  "Customer repository:OK",
+  customer ?"customer found":"no customer",
+);
 }
 
 main()
