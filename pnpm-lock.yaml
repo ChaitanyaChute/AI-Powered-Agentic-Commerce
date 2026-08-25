@@ -27,7 +27,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/database
       '@repo/queues':
-        specifier: workspace:^
+        specifier: workspace:*
         version: link:../../packages/queues
       '@repo/typescript-config':
         specifier: workspace:*
@@ -163,6 +163,9 @@ importers:
       '@repo/typescript-config':
         specifier: workspace:*
         version: link:../typescript-config
+      dotenv:
+        specifier: ^17.4.2
+        version: 17.4.2
     devDependencies:
       '@types/node':
         specifier: ^22.15.3
