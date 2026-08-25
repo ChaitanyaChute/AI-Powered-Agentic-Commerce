@@ -166,6 +166,9 @@ importers:
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@types/node':
         specifier: ^22.15.3
@@ -173,6 +176,9 @@ importers:
       prisma:
         specifier: 6.19.3
         version: 6.19.3(typescript@5.9.2)
+      tsx:
+        specifier: ^4.23.12
+        version: 4.23.12
 
   packages/eslint-config:
     devDependencies:

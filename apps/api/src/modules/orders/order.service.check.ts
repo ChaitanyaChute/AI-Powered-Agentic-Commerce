@@ -1,14 +1,15 @@
-import {CartRepository,CustomerRepository,OrderItemRepository,OrderRepository,ProductRepository} from "@repo/database";
+import {CartRepository,CustomerRepository,InventoryRepository,OrderItemRepository,OrderRepository,ProductRepository} from "@repo/database";
 import { OrderService } from "./order.service.js";
 
 async function main(): Promise<void> {
   const orderService = new OrderService(
-    new CartRepository(),
-    new CustomerRepository(),
-    new OrderRepository(),
-    new OrderItemRepository(),
-    new ProductRepository(),
-  );
+  new CartRepository(),
+  new CustomerRepository(),
+  new OrderRepository(),
+  new OrderItemRepository(),
+  new ProductRepository(),
+  new InventoryRepository(),
+);
 
   const order = await orderService.getOrderByNumber(
     "SMOKE-TEST-ORDER",

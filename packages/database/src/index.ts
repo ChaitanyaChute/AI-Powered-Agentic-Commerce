@@ -1,4 +1,4 @@
-export { prisma,connectDatabase,disconnectDatabase,checkDatabaseConnection} from "./client.js";
+export { withDatabaseTransaction,connectDatabase,disconnectDatabase,checkDatabaseConnection,prisma} from "./client.js";
 export {ProductRepository,} from "./repositories/product.repository.js";
 export {InventoryRepository} from "./repositories/inventory.repository.js";
 export {CustomerRepository,} from "./repositories/customer.repository.js";

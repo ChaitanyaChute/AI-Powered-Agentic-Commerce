@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient,Prisma } from "@prisma/client";
 import { databaseEnv } from "./env.js";
 
 process.env.DATABASE_URL = databaseEnv.DATABASE_URL;
@@ -23,4 +23,8 @@ export async function disconnectDatabase(): Promise<void> {
 
 export async function checkDatabaseConnection(): Promise<void> {
   await prisma.$queryRaw`SELECT 1`;
+}
+
+export async function withDatabaseTransaction<T>(callback: (tx: Prisma.TransactionClient)=>Promise<T>): Promise<T>{
+  return prisma.$transaction(callback);
 }

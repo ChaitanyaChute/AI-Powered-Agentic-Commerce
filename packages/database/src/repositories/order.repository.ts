@@ -2,24 +2,26 @@ import type { Order, Prisma } from "@prisma/client";
 import { prisma } from "../client.js";
 
 export class OrderRepository {
-  async findById(id: string): Promise<Order | null> {
-    return prisma.order.findUnique({
+  constructor(
+    private readonly db:
+      | typeof prisma
+      | Prisma.TransactionClient = prisma,
+  ){}
+
+  async findById(id: string) {
+    return this.db.order.findUnique({
       where: { id },
     });
   }
 
-  async findByOrderNumber(
-    orderNumber: string,
-  ): Promise<Order | null> {
-    return prisma.order.findUnique({
-      where: {
-        orderNumber,
-      },
+  async findByOrderNumber(orderNumber: string) {
+    return this.db.order.findUnique({
+      where:{orderNumber },
     });
   }
 
   async findByIdWithItems(id: string) {
-    return prisma.order.findUnique({
+    return this.db.order.findUnique({
       where: { id },
       include: {
         items: {
@@ -31,10 +33,8 @@ export class OrderRepository {
     });
   }
 
-  async create(
-    data: Prisma.OrderCreateInput,
-  ): Promise<Order> {
-    return prisma.order.create({
+  async create(data: Prisma.OrderCreateInput) {
+    return this.db.order.create({
       data,
     });
   }
@@ -42,17 +42,15 @@ export class OrderRepository {
   async update(
     id: string,
     data: Prisma.OrderUpdateInput,
-  ): Promise<Order> {
-    return prisma.order.update({
+  ) {
+    return this.db.order.update({
       where: { id },
       data,
     });
   }
 
-  async listByCustomerId(
-    customerId: string,
-  ): Promise<Order[]> {
-    return prisma.order.findMany({
+  async listByCustomerId(customerId: string) {
+    return this.db.order.findMany({
       where: {
         customerId,
       },

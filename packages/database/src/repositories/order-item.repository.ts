@@ -2,14 +2,20 @@ import type { OrderItem, Prisma } from "@prisma/client";
 import { prisma } from "../client.js";
 
 export class OrderItemRepository {
+  constructor(
+  private readonly db:
+    | typeof prisma
+    | Prisma.TransactionClient = prisma,
+) {}
+
   async findById(id: string): Promise<OrderItem | null> {
-    return prisma.orderItem.findUnique({
+    return this.db.orderItem.findUnique({
       where: { id },
     });
   }
 
   async listByOrderId(orderId: string): Promise<OrderItem[]> {
-    return prisma.orderItem.findMany({
+    return this.db.orderItem.findMany({
       where: {
         orderId,
       },
@@ -22,7 +28,7 @@ export class OrderItemRepository {
   async create(
     data: Prisma.OrderItemCreateInput,
   ): Promise<OrderItem> {
-    return prisma.orderItem.create({
+    return this.db.orderItem.create({
       data,
     });
   }
@@ -30,13 +36,13 @@ export class OrderItemRepository {
   async createMany(
     data: Prisma.OrderItemCreateManyInput[],
   ): Promise<{ count: number }> {
-    return prisma.orderItem.createMany({
+    return this.db.orderItem.createMany({
       data,
     });
   }
 
   async delete(id: string): Promise<OrderItem> {
-    return prisma.orderItem.delete({
+    return this.db.orderItem.delete({
       where: { id },
     });
   }

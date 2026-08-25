@@ -17,7 +17,9 @@
     "seed": "tsx prisma/seed.ts",
     "typecheck": "tsc --noEmit",
     "check-db": "tsx src/check-connection.ts",
-    "check-repository": "tsx src/check-repository.ts"
+    "check-repository": "tsx src/check-repository.ts",
+    "check-transaction": "tsx src/check-transaction.ts",
+    "check-inventory-reservation": "tsx src/check-inventory-reservation.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

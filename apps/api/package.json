@@ -12,7 +12,9 @@
     "test": "vitest run",
     "check-catalog": "tsx src/modules/catalog/catalog.service.check.ts",
     "check-cart": "tsx src/modules/carts/cart.service.check.ts",
-    "check-order": "tsx src/modules/orders/order.service.check.ts"
+    "check-order": "tsx src/modules/orders/order.service.check.ts",
+    "check-checkout": "tsx src/modules/orders/check-checkout.ts",
+    "check-checkout-rollback": "tsx src/modules/orders/check-checkout-rollback.ts"
   },
   "dependencies": {
     "@prisma/client": "^7.9.1",
