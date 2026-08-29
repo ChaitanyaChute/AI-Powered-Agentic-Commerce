@@ -38,4 +38,6 @@ router.patch("/:id/status",orderController.transitionOrderStatus);
 
 router.patch("/:id/status", orderController.transitionOrder);
 
+router.delete("/:id",orderController.cancelOrder);
+
 export { router as orderRouter };

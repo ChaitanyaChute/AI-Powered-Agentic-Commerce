@@ -43,6 +43,7 @@ describe("Orders API", () => {
   let productId: string;
   let inactiveProductId: string;
   let noInventoryProductId: string;
+  let cancellationProductId: string;
 
   let cartId: string;
   let emptyCartId: string;
@@ -71,6 +72,31 @@ describe("Orders API", () => {
       data: {
         cartId: cart.id,
         productId,
+        quantity,
+      },
+    });
+
+    testCartIds.push(cart.id);
+
+    return cart.id;
+  }
+
+  async function createCancellationOrderCart(
+    quantity = 1,
+  ): Promise<string> {
+    const cart =
+      await cartRepository.create({
+        customer: {
+          connect: {
+            id: customerId,
+          },
+        },
+      });
+
+    await prisma.cartItem.create({
+      data: {
+        cartId: cart.id,
+        productId: cancellationProductId,
         quantity,
       },
     });
@@ -147,6 +173,25 @@ describe("Orders API", () => {
 
     await inventoryRepository.create(
       product.id,
+      10,
+    );
+
+    const cancellationProduct =
+      await productRepository.create({
+        sku:
+          `API-CANCELLATION-${suffix}`,
+        name:
+          "API Cancellation Product",
+        priceMinor: 1500,
+        currency: "INR",
+        active: true,
+      });
+
+    cancellationProductId =
+      cancellationProduct.id;
+
+    await inventoryRepository.create(
+      cancellationProduct.id,
       10,
     );
 
@@ -384,6 +429,7 @@ describe("Orders API", () => {
           in: [
             productId,
             inactiveProductId,
+            cancellationProductId,
           ],
         },
       },
@@ -396,6 +442,7 @@ describe("Orders API", () => {
             productId,
             inactiveProductId,
             noInventoryProductId,
+            cancellationProductId,
           ],
         },
       },
@@ -1502,6 +1549,413 @@ describe("Orders API", () => {
         message:
           "Order not found.",
       });
+    });
+  });
+
+    describe("DELETE /api/orders/:id", () => {
+    it("cancels a CREATED order", async () => {
+      const testCartId =
+        await createCancellationOrderCart(1);
+
+      const createResponse =
+        await request(app)
+          .post("/api/orders")
+          .send({
+            customerId,
+            cartId: testCartId,
+          });
+
+      expect(createResponse.status).toBe(201);
+
+      const orderId =
+        createResponse.body.data.id;
+
+      const cancelResponse =
+        await request(app)
+          .delete(`/api/orders/${orderId}`);
+
+      expect(cancelResponse.status).toBe(200);
+
+      expect(
+        cancelResponse.body.data,
+      ).toMatchObject({
+        id: orderId,
+        customerId,
+        status: "CANCELLED",
+      });
+
+      const order =
+        await orderRepository.findByIdWithItems(
+          orderId,
+        );
+
+      expect(order).not.toBeNull();
+
+      expect(order?.status).toBe(
+        "CANCELLED",
+      );
+    });
+
+    it("releases reserved inventory when cancelling an order", async () => {
+      const inventoryBefore =
+        await inventoryRepository.findByProductId(
+          cancellationProductId,
+        );
+
+      expect(inventoryBefore).not.toBeNull();
+
+      const reservedBefore =
+        inventoryBefore?.reserved ?? 0;
+
+      const testCartId =
+        await createCancellationOrderCart(1);
+
+      const createResponse =
+        await request(app)
+          .post("/api/orders")
+          .send({
+            customerId,
+            cartId: testCartId,
+          });
+
+      expect(createResponse.status).toBe(201);
+
+      const orderId =
+        createResponse.body.data.id;
+
+      const inventoryAfterCreate =
+        await inventoryRepository.findByProductId(
+          cancellationProductId,
+        );
+
+      expect(
+        inventoryAfterCreate,
+      ).not.toBeNull();
+
+      expect(
+        inventoryAfterCreate?.reserved,
+      ).toBe(reservedBefore + 1);
+
+      const cancelResponse =
+        await request(app)
+          .delete(`/api/orders/${orderId}`);
+
+      expect(cancelResponse.status).toBe(200);
+
+      expect(
+        cancelResponse.body.data.status,
+      ).toBe("CANCELLED");
+
+      const inventoryAfterCancel =
+        await inventoryRepository.findByProductId(
+          cancellationProductId,
+        );
+
+      expect(
+        inventoryAfterCancel,
+      ).not.toBeNull();
+
+      expect(
+        inventoryAfterCancel?.reserved,
+      ).toBe(reservedBefore);
+    });
+
+    it("does not release inventory twice when cancellation is repeated", async () => {
+      const testCartId =
+        await createCancellationOrderCart(1);
+
+      const createResponse =
+        await request(app)
+          .post("/api/orders")
+          .send({
+            customerId,
+            cartId: testCartId,
+          });
+
+      expect(createResponse.status).toBe(201);
+
+      const orderId =
+        createResponse.body.data.id;
+
+      const inventoryBeforeCancel =
+        await inventoryRepository.findByProductId(
+          cancellationProductId,
+        );
+
+      expect(
+        inventoryBeforeCancel,
+      ).not.toBeNull();
+
+      const reservedBeforeCancel =
+        inventoryBeforeCancel?.reserved ?? 0;
+
+      const firstCancelResponse =
+        await request(app)
+          .delete(`/api/orders/${orderId}`);
+
+      expect(
+        firstCancelResponse.status,
+      ).toBe(200);
+
+      expect(
+        firstCancelResponse.body.data.status,
+      ).toBe("CANCELLED");
+
+      const inventoryAfterFirstCancel =
+        await inventoryRepository.findByProductId(
+          cancellationProductId,
+        );
+
+      expect(
+        inventoryAfterFirstCancel,
+      ).not.toBeNull();
+
+      expect(
+        inventoryAfterFirstCancel?.reserved,
+      ).toBe(reservedBeforeCancel - 1);
+
+      const secondCancelResponse =
+        await request(app)
+          .delete(`/api/orders/${orderId}`);
+
+      expect(
+        secondCancelResponse.status,
+      ).toBe(200);
+
+      expect(
+        secondCancelResponse.body.data,
+      ).toEqual(
+        firstCancelResponse.body.data,
+      );
+
+      const inventoryAfterSecondCancel =
+        await inventoryRepository.findByProductId(
+          cancellationProductId,
+        );
+
+      expect(
+        inventoryAfterSecondCancel,
+      ).not.toBeNull();
+
+      expect(
+        inventoryAfterSecondCancel?.reserved,
+      ).toBe(reservedBeforeCancel - 1);
+    });
+
+    it("rejects cancellation from PAYMENT_PENDING", async () => {
+      const orderId =
+        await createStateMachineOrder(
+          "PAYMENT_PENDING",
+        );
+
+      const response =
+        await request(app)
+          .delete(`/api/orders/${orderId}`);
+
+      expect(response.status).toBe(409);
+
+      expect(
+        response.body.error,
+      ).toMatchObject({
+        code:
+          "INVALID_ORDER_STATUS_TRANSITION",
+      });
+
+      const order =
+        await orderRepository.findByIdWithItems(
+          orderId,
+        );
+
+      expect(order).not.toBeNull();
+
+      expect(order?.status).toBe(
+        "PAYMENT_PENDING",
+      );
+    });
+
+    it("rejects cancellation from PAID", async () => {
+      const orderId =
+        await createStateMachineOrder(
+          "PAID",
+        );
+
+      const response =
+        await request(app)
+          .delete(`/api/orders/${orderId}`);
+
+      expect(response.status).toBe(409);
+
+      expect(
+        response.body.error,
+      ).toMatchObject({
+        code:
+          "INVALID_ORDER_STATUS_TRANSITION",
+      });
+
+      const order =
+        await orderRepository.findByIdWithItems(
+          orderId,
+        );
+
+      expect(order).not.toBeNull();
+
+      expect(order?.status).toBe("PAID");
+    });
+
+    it("rejects cancellation from PROCESSING", async () => {
+      const orderId =
+        await createStateMachineOrder(
+          "PROCESSING",
+        );
+
+      const response =
+        await request(app)
+          .delete(`/api/orders/${orderId}`);
+
+      expect(response.status).toBe(409);
+
+      expect(
+        response.body.error,
+      ).toMatchObject({
+        code:
+          "INVALID_ORDER_STATUS_TRANSITION",
+      });
+
+      const order =
+        await orderRepository.findByIdWithItems(
+          orderId,
+        );
+
+      expect(order).not.toBeNull();
+
+      expect(order?.status).toBe(
+        "PROCESSING",
+      );
+    });
+
+    it("rejects cancellation from COMPLETED", async () => {
+      const orderId =
+        await createStateMachineOrder(
+          "COMPLETED",
+        );
+
+      const response =
+        await request(app)
+          .delete(`/api/orders/${orderId}`);
+
+      expect(response.status).toBe(409);
+
+      expect(
+        response.body.error,
+      ).toMatchObject({
+        code:
+          "INVALID_ORDER_STATUS_TRANSITION",
+      });
+
+      const order =
+        await orderRepository.findByIdWithItems(
+          orderId,
+        );
+
+      expect(order).not.toBeNull();
+
+      expect(order?.status).toBe(
+        "COMPLETED",
+      );
+    });
+
+    it("rejects cancellation from PAYMENT_FAILED", async () => {
+      const orderId =
+        await createStateMachineOrder(
+          "PAYMENT_FAILED",
+        );
+
+      const response =
+        await request(app)
+          .delete(`/api/orders/${orderId}`);
+
+      expect(response.status).toBe(409);
+
+      expect(
+        response.body.error,
+      ).toMatchObject({
+        code:
+          "INVALID_ORDER_STATUS_TRANSITION",
+      });
+
+      const order =
+        await orderRepository.findByIdWithItems(
+          orderId,
+        );
+
+      expect(order).not.toBeNull();
+
+      expect(order?.status).toBe(
+        "PAYMENT_FAILED",
+      );
+    });
+
+    it("returns the same cancelled order when cancellation is repeated", async () => {
+      const testCartId =
+        await createCancellationOrderCart(1);
+
+      const createResponse =
+        await request(app)
+          .post("/api/orders")
+          .send({
+            customerId,
+            cartId: testCartId,
+          });
+
+      expect(createResponse.status).toBe(201);
+
+      const orderId =
+        createResponse.body.data.id;
+
+      const firstResponse =
+        await request(app)
+          .delete(`/api/orders/${orderId}`);
+
+      expect(firstResponse.status).toBe(200);
+
+      const secondResponse =
+        await request(app)
+          .delete(`/api/orders/${orderId}`);
+
+      expect(secondResponse.status).toBe(200);
+
+      expect(
+        secondResponse.body,
+      ).toEqual(
+        firstResponse.body,
+      );
+    });
+
+    it("rejects cancellation for a non-existent order", async () => {
+      const response =
+        await request(app)
+          .delete(
+            "/api/orders/00000000-0000-0000-0000-000000000000",
+          );
+
+      expect(response.status).toBe(404);
+
+      expect(
+        response.body.error,
+      ).toMatchObject({
+        code: "ORDER_NOT_FOUND",
+        message: "Order not found.",
+      });
+    });
+
+    it("rejects cancellation when the order ID is missing", async () => {
+      const response =
+        await request(app)
+          .delete("/api/orders/");
+
+      expect(
+        [404, 400],
+      ).toContain(response.status);
     });
   });
 });

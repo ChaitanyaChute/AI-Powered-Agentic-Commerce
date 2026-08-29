@@ -81,4 +81,40 @@ export class InventoryRepository {
     },
   });
 }
+
+async release(
+  inventoryId: string,
+  quantity: number,
+) {
+  if (
+    !Number.isInteger(quantity) ||
+    quantity <= 0
+  ) {
+    throw new Error(
+      "Release quantity must be positive.",
+    );
+  }
+
+  const result = await this.db.$executeRaw`
+    UPDATE "Inventory"
+    SET
+      "reserved" = "reserved" - ${quantity},
+      "updatedAt" = CURRENT_TIMESTAMP
+    WHERE
+      "id" = ${inventoryId}
+      AND "reserved" >= ${quantity}
+  `;
+
+  if (result !== 1) {
+    throw new Error(
+      "Unable to release inventory.",
+    );
+  }
+
+  return this.db.inventory.findUniqueOrThrow({
+    where: {
+      id: inventoryId,
+    },
+  });
+}
 }

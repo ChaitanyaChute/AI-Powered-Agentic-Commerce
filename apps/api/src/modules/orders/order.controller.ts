@@ -156,6 +156,36 @@ export class OrderController {
     }
   };
 
+  cancelOrder = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    if (
+      typeof id !== "string" ||
+      id.length === 0
+    ) {
+      throw new AppError(
+        "Order ID is required.",
+        400,
+        "ORDER_ID_REQUIRED",
+      );
+    }
+
+    const order =
+      await this.orderService.cancelOrder(id);
+
+    res.status(200).json({
+      data: order,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
   getOrder = async (
     req: Request,
     res: Response,

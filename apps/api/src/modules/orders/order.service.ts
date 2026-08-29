@@ -98,6 +98,87 @@ export class OrderService {
   );
 }
 
+async cancelOrder(orderId: string) {
+  return withDatabaseTransaction(async (tx) => {
+    const txOrderRepository =
+      new OrderRepository(tx);
+
+    const txInventoryRepository =
+      new InventoryRepository(tx);
+
+    const order =
+      await txOrderRepository.findByIdWithItems(
+        orderId,
+      );
+
+    if (!order) {
+      throw new AppError(
+        "Order not found.",
+        404,
+        "ORDER_NOT_FOUND",
+      );
+    }
+
+    // Cancellation is idempotent.
+    // If the order is already cancelled, do not
+    // release inventory again.
+    if (order.status === "CANCELLED") {
+      return order;
+    }
+
+    // Only CREATED orders can be cancelled.
+    if (order.status !== "CREATED") {
+      throw new AppError(
+        `Cannot transition order from ${order.status} to CANCELLED.`,
+        409,
+        "INVALID_ORDER_STATUS_TRANSITION",
+      );
+    }
+
+    // Release every inventory reservation exactly once.
+    for (const item of order.items) {
+      const inventory =
+        await txInventoryRepository.findByProductId(
+          item.productId,
+        );
+
+      if (!inventory) {
+        throw new AppError(
+          `Inventory not found for product ${item.productId}.`,
+          404,
+          "INVENTORY_NOT_FOUND",
+        );
+      }
+
+      await txInventoryRepository.release(
+        inventory.id,
+        item.quantity,
+      );
+    }
+
+    // Use the same state-machine validation used
+    // everywhere else in the order lifecycle.
+    assertValidOrderTransition(
+      order.status as OrderStatus,
+      "CANCELLED",
+    );
+
+    await txOrderRepository.update(
+      order.id,
+      {
+        status: "CANCELLED",
+      },
+    );
+
+    // IMPORTANT:
+    // Return the same complete representation as
+    // the already-cancelled branch.
+    return txOrderRepository.findByIdWithItems(
+      order.id,
+    );
+  });
+}
+
   async createOrderFromCart(
     customerId: string,
     cartId: string,
