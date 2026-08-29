@@ -80,6 +80,36 @@ describe("Orders API", () => {
     return cart.id;
   }
 
+  async function createStateMachineOrder(
+    status:
+      | "CREATED"
+      | "PAYMENT_PENDING"
+      | "PAID"
+      | "PROCESSING"
+      | "COMPLETED"
+      | "PAYMENT_FAILED"
+      | "CANCELLED"
+      | "REFUND_PENDING"
+      | "REFUNDED" = "CREATED",
+  ): Promise<string> {
+    const order =
+      await prisma.order.create({
+        data: {
+          orderNumber:
+            `STATE-${Date.now()}-${Math.random()
+              .toString(36)
+              .slice(2, 8)}`,
+          customerId,
+          status,
+          currency: "INR",
+          subtotalMinor: 0,
+          totalMinor: 0,
+        },
+      });
+
+    return order.id;
+  }
+
   beforeAll(async () => {
     const suffix = Date.now();
 
@@ -710,7 +740,7 @@ describe("Orders API", () => {
         response.body.data,
       ).toMatchObject({
         customerId,
-        status: "PENDING",
+        status: "CREATED",
         subtotalMinor: 3000,
         totalMinor: 3000,
         currency: "INR",
@@ -733,7 +763,7 @@ describe("Orders API", () => {
       );
 
       expect(order?.status).toBe(
-        "PENDING",
+        "CREATED",
       );
 
       expect(order?.subtotalMinor).toBe(
@@ -922,13 +952,13 @@ describe("Orders API", () => {
       ).toBe(409);
 
       expect(
-  secondResponse.body.error,
-).toMatchObject({
-  code:
-    "IDEMPOTENCY_KEY_REUSED",
-  message:
-    "Idempotency key was already used with a different request.",
-});
+        secondResponse.body.error,
+      ).toMatchObject({
+        code:
+          "IDEMPOTENCY_KEY_REUSED",
+        message:
+          "Idempotency key was already used with a different request.",
+      });
 
       const secondCart =
         await cartRepository.findByIdWithItems(
@@ -963,7 +993,7 @@ describe("Orders API", () => {
         response.body.data,
       ).toMatchObject({
         customerId,
-        status: "PENDING",
+        status: "CREATED",
         subtotalMinor: 1500,
         totalMinor: 1500,
         currency: "INR",
@@ -1010,7 +1040,7 @@ describe("Orders API", () => {
       ).toMatchObject({
         id: createdOrder.id,
         customerId,
-        status: "PENDING",
+        status: "CREATED",
         subtotalMinor: 1500,
         totalMinor: 1500,
         currency: "INR",
@@ -1091,6 +1121,379 @@ describe("Orders API", () => {
       expect(
         response.status,
       ).toBe(404);
+
+      expect(
+        response.body.error,
+      ).toMatchObject({
+        code: "ORDER_NOT_FOUND",
+        message:
+          "Order not found.",
+      });
+    });
+  });
+
+  describe("PATCH /api/orders/:id/status", () => {
+    it("allows CREATED → PAYMENT_PENDING", async () => {
+      const orderId =
+        await createStateMachineOrder(
+          "CREATED",
+        );
+
+      const response =
+        await request(app)
+          .patch(
+            `/api/orders/${orderId}/status`,
+          )
+          .send({
+            status: "PAYMENT_PENDING",
+          });
+
+      expect(response.status).toBe(200);
+
+      expect(
+        response.body.data,
+      ).toMatchObject({
+        id: orderId,
+        status: "PAYMENT_PENDING",
+      });
+    });
+
+    it("allows PAYMENT_PENDING → PAID", async () => {
+      const orderId =
+        await createStateMachineOrder(
+          "PAYMENT_PENDING",
+        );
+
+      const response =
+        await request(app)
+          .patch(
+            `/api/orders/${orderId}/status`,
+          )
+          .send({
+            status: "PAID",
+          });
+
+      expect(response.status).toBe(200);
+
+      expect(
+        response.body.data,
+      ).toMatchObject({
+        id: orderId,
+        status: "PAID",
+      });
+    });
+
+    it("allows PAID → PROCESSING", async () => {
+      const orderId =
+        await createStateMachineOrder(
+          "PAID",
+        );
+
+      const response =
+        await request(app)
+          .patch(
+            `/api/orders/${orderId}/status`,
+          )
+          .send({
+            status: "PROCESSING",
+          });
+
+      expect(response.status).toBe(200);
+
+      expect(
+        response.body.data,
+      ).toMatchObject({
+        id: orderId,
+        status: "PROCESSING",
+      });
+    });
+
+    it("allows PROCESSING → COMPLETED", async () => {
+      const orderId =
+        await createStateMachineOrder(
+          "PROCESSING",
+        );
+
+      const response =
+        await request(app)
+          .patch(
+            `/api/orders/${orderId}/status`,
+          )
+          .send({
+            status: "COMPLETED",
+          });
+
+      expect(response.status).toBe(200);
+
+      expect(
+        response.body.data,
+      ).toMatchObject({
+        id: orderId,
+        status: "COMPLETED",
+      });
+    });
+
+    it("allows PAYMENT_PENDING → PAYMENT_FAILED", async () => {
+      const orderId =
+        await createStateMachineOrder(
+          "PAYMENT_PENDING",
+        );
+
+      const response =
+        await request(app)
+          .patch(
+            `/api/orders/${orderId}/status`,
+          )
+          .send({
+            status: "PAYMENT_FAILED",
+          });
+
+      expect(response.status).toBe(200);
+
+      expect(
+        response.body.data,
+      ).toMatchObject({
+        id: orderId,
+        status: "PAYMENT_FAILED",
+      });
+    });
+
+    it("allows CREATED → CANCELLED", async () => {
+      const orderId =
+        await createStateMachineOrder(
+          "CREATED",
+        );
+
+      const response =
+        await request(app)
+          .patch(
+            `/api/orders/${orderId}/status`,
+          )
+          .send({
+            status: "CANCELLED",
+          });
+
+      expect(response.status).toBe(200);
+
+      expect(
+        response.body.data,
+      ).toMatchObject({
+        id: orderId,
+        status: "CANCELLED",
+      });
+    });
+
+    it("allows PAID → REFUND_PENDING", async () => {
+      const orderId =
+        await createStateMachineOrder(
+          "PAID",
+        );
+
+      const response =
+        await request(app)
+          .patch(
+            `/api/orders/${orderId}/status`,
+          )
+          .send({
+            status: "REFUND_PENDING",
+          });
+
+      expect(response.status).toBe(200);
+
+      expect(
+        response.body.data,
+      ).toMatchObject({
+        id: orderId,
+        status: "REFUND_PENDING",
+      });
+    });
+
+    it("allows REFUND_PENDING → REFUNDED", async () => {
+      const orderId =
+        await createStateMachineOrder(
+          "REFUND_PENDING",
+        );
+
+      const response =
+        await request(app)
+          .patch(
+            `/api/orders/${orderId}/status`,
+          )
+          .send({
+            status: "REFUNDED",
+          });
+
+      expect(response.status).toBe(200);
+
+      expect(
+        response.body.data,
+      ).toMatchObject({
+        id: orderId,
+        status: "REFUNDED",
+      });
+    });
+
+    it("rejects CREATED → PAID", async () => {
+      const orderId =
+        await createStateMachineOrder(
+          "CREATED",
+        );
+
+      const response =
+        await request(app)
+          .patch(
+            `/api/orders/${orderId}/status`,
+          )
+          .send({
+            status: "PAID",
+          });
+
+      expect(response.status).toBe(409);
+
+      expect(
+        response.body.error,
+      ).toMatchObject({
+        code:
+          "INVALID_ORDER_STATUS_TRANSITION",
+      });
+    });
+
+    it("rejects CREATED → PROCESSING", async () => {
+      const orderId =
+        await createStateMachineOrder(
+          "CREATED",
+        );
+
+      const response =
+        await request(app)
+          .patch(
+            `/api/orders/${orderId}/status`,
+          )
+          .send({
+            status: "PROCESSING",
+          });
+
+      expect(response.status).toBe(409);
+
+      expect(
+        response.body.error,
+      ).toMatchObject({
+        code:
+          "INVALID_ORDER_STATUS_TRANSITION",
+      });
+    });
+
+    it("rejects PAYMENT_PENDING → COMPLETED", async () => {
+      const orderId =
+        await createStateMachineOrder(
+          "PAYMENT_PENDING",
+        );
+
+      const response =
+        await request(app)
+          .patch(
+            `/api/orders/${orderId}/status`,
+          )
+          .send({
+            status: "COMPLETED",
+          });
+
+      expect(response.status).toBe(409);
+
+      expect(
+        response.body.error,
+      ).toMatchObject({
+        code:
+          "INVALID_ORDER_STATUS_TRANSITION",
+      });
+    });
+
+    it("rejects PAID → CANCELLED", async () => {
+      const orderId =
+        await createStateMachineOrder(
+          "PAID",
+        );
+
+      const response =
+        await request(app)
+          .patch(
+            `/api/orders/${orderId}/status`,
+          )
+          .send({
+            status: "CANCELLED",
+          });
+
+      expect(response.status).toBe(409);
+
+      expect(
+        response.body.error,
+      ).toMatchObject({
+        code:
+          "INVALID_ORDER_STATUS_TRANSITION",
+      });
+    });
+
+    it("rejects COMPLETED → PAID", async () => {
+      const orderId =
+        await createStateMachineOrder(
+          "COMPLETED",
+        );
+
+      const response =
+        await request(app)
+          .patch(
+            `/api/orders/${orderId}/status`,
+          )
+          .send({
+            status: "PAID",
+          });
+
+      expect(response.status).toBe(409);
+
+      expect(
+        response.body.error,
+      ).toMatchObject({
+        code:
+          "INVALID_ORDER_STATUS_TRANSITION",
+      });
+    });
+
+    it("rejects REFUNDED → PAID", async () => {
+      const orderId =
+        await createStateMachineOrder(
+          "REFUNDED",
+        );
+
+      const response =
+        await request(app)
+          .patch(
+            `/api/orders/${orderId}/status`,
+          )
+          .send({
+            status: "PAID",
+          });
+
+      expect(response.status).toBe(409);
+
+      expect(
+        response.body.error,
+      ).toMatchObject({
+        code:
+          "INVALID_ORDER_STATUS_TRANSITION",
+      });
+    });
+
+    it("rejects a transition for a non-existent order", async () => {
+      const response =
+        await request(app)
+          .patch(
+            "/api/orders/00000000-0000-0000-0000-000000000000/status",
+          )
+          .send({
+            status: "PAID",
+          });
+
+      expect(response.status).toBe(404);
 
       expect(
         response.body.error,

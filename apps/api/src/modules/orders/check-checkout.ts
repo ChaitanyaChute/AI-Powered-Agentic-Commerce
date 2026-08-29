@@ -78,7 +78,7 @@ async function main(): Promise<void> {
 
     orderId = order.id;
 
-    if (order.status !== "PENDING") {
+    if (order.status !== "CREATED") {
       throw new Error(
         `Expected order status PENDING, got ${order.status}.`,
       );

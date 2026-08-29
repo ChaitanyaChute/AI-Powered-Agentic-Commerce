@@ -34,4 +34,6 @@ router.post("/",orderController.createOrder);
 
 router.get("/:id",orderController.getOrder);
 
+router.patch("/:id/status",orderController.transitionOrderStatus);
+
 export { router as orderRouter };

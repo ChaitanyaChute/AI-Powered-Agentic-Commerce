@@ -9,6 +9,9 @@ import { AppError } from "../../middleware/error-handler.js";
 import { createOrderSchema } from "./order.schemas.js";
 import { OrderService } from "./order.service.js";
 import { IdempotencyService } from "../../lib/idempotency/idempotency.service.js";
+import {
+  type OrderStatus,
+} from "./order-state-machine.js";
 
 export class OrderController {
   constructor(
@@ -182,6 +185,51 @@ export class OrderController {
           "ORDER_NOT_FOUND",
         );
       }
+
+      res.status(200).json({
+        data: order,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  transitionOrderStatus = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const { id } = req.params;
+
+      if (
+        typeof id !== "string" ||
+        id.length === 0
+      ) {
+        throw new AppError(
+          "Order ID is required.",
+          400,
+          "ORDER_ID_REQUIRED",
+        );
+      }
+
+      const { status } = req.body as {
+        status?: OrderStatus;
+      };
+
+      if (!status) {
+        throw new AppError(
+          "Order status is required.",
+          400,
+          "ORDER_STATUS_REQUIRED",
+        );
+      }
+
+      const order =
+        await this.orderService.transitionOrderStatus(
+          id,
+          status,
+        );
 
       res.status(200).json({
         data: order,

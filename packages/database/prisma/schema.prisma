@@ -14,10 +14,15 @@ enum CartStatus {
 }
 
 enum OrderStatus {
-  PENDING
-  CONFIRMED
-  CANCELLED
+  CREATED
+  PAYMENT_PENDING
+  PAID
+  PROCESSING
   COMPLETED
+  PAYMENT_FAILED
+  CANCELLED
+  REFUND_PENDING
+  REFUNDED
 }
 
 enum PaymentStatus {
@@ -113,7 +118,7 @@ model Order {
   id            String      @id @default(uuid())
   orderNumber   String      @unique
   customerId    String
-  status        OrderStatus @default(PENDING)
+  status        OrderStatus @default(CREATED)
   currency      String      @default("INR")
   subtotalMinor Int
   totalMinor    Int
