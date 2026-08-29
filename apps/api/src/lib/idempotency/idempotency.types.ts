@@ -6,5 +6,6 @@ export type IdempotencyStatus =
 export interface IdempotencyRecord {
   status: IdempotencyStatus;
   createdAt: string;
+  requestHash: string;
   response?: unknown;
 }

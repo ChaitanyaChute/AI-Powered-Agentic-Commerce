@@ -1,33 +1,36 @@
-import type{ Redis} from "ioredis";
+import type { Redis } from "ioredis";
 import type { IdempotencyRecord } from "./idempotency.types.js";
 
-export class IdempotencyService{
-    constructor(
-        private readonly redis:Redis
-    ){}
+export class IdempotencyService {
+  constructor(
+    private readonly redis: Redis,
+  ) {}
 
-    private buildKey(
-        scope:string,
-        idempotencyKey: string
-    ):string{
-        return `idempotency:${scope}:${idempotencyKey}`
-    }
+  private buildKey(
+    scope: string,
+    idempotencyKey: string,
+  ): string {
+    return `idempotency:${scope}:${idempotencyKey}`;
+  }
 
-    async acquire(
-        scope:string,
-        idempotencyKey: string,
-        ttlSeconds: number = 300,
-    ):Promise<boolean> {
-        const key = this.buildKey(
-        scope,
-        idempotencyKey
-         );
-        const record: IdempotencyRecord = {
+  async acquire(
+    scope: string,
+    idempotencyKey: string,
+    requestHash: string,
+    ttlSeconds: number = 300,
+  ): Promise<boolean> {
+    const key = this.buildKey(
+      scope,
+      idempotencyKey,
+    );
+
+    const record: IdempotencyRecord = {
       status: "PROCESSING",
       createdAt: new Date().toISOString(),
+      requestHash,
     };
 
-    const result= await this.redis.set(
+    const result = await this.redis.set(
       key,
       JSON.stringify(record),
       "EX",
@@ -36,12 +39,12 @@ export class IdempotencyService{
     );
 
     return result === "OK";
-    }
+  }
 
-    async get(
+  async get(
     scope: string,
     idempotencyKey: string,
-    ):Promise<IdempotencyRecord | null> {
+  ): Promise<IdempotencyRecord | null> {
     const key = this.buildKey(
       scope,
       idempotencyKey,
@@ -49,19 +52,22 @@ export class IdempotencyService{
 
     const value = await this.redis.get(key);
 
-    if(!value) {
+    if (!value) {
       return null;
     }
 
-    return JSON.parse(value) as IdempotencyRecord;
-      }
+    return JSON.parse(
+      value,
+    ) as IdempotencyRecord;
+  }
 
-    async complete(
+  async complete(
     scope: string,
     idempotencyKey: string,
+    requestHash: string,
     response: unknown,
     ttlSeconds: number = 86400,
-    ):Promise<void> {
+  ): Promise<void> {
     const key = this.buildKey(
       scope,
       idempotencyKey,
@@ -70,6 +76,7 @@ export class IdempotencyService{
     const record: IdempotencyRecord = {
       status: "COMPLETED",
       createdAt: new Date().toISOString(),
+      requestHash,
       response,
     };
 
@@ -84,9 +91,10 @@ export class IdempotencyService{
   async fail(
     scope: string,
     idempotencyKey: string,
-    response?:unknown,
-    ttlSeconds: number= 300,
-  ):Promise<void> {
+    requestHash: string,
+    response?: unknown,
+    ttlSeconds: number = 300,
+  ): Promise<void> {
     const key = this.buildKey(
       scope,
       idempotencyKey,
@@ -95,6 +103,7 @@ export class IdempotencyService{
     const record: IdempotencyRecord = {
       status: "FAILED",
       createdAt: new Date().toISOString(),
+      requestHash,
       ...(response !== undefined
         ? { response }
         : {}),

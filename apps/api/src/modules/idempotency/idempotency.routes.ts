@@ -18,10 +18,14 @@ router.post("/internal/idempotency/test",async(req,res,next)=>{
         });
       }
 
-      const acquired =await idempotencyService.acquire(
-          "test",
-          idempotencyKey,
-        );
+      const requestHash = "internal-test-request";
+
+const acquired =
+  await idempotencyService.acquire(
+    "test",
+    idempotencyKey,
+    requestHash,
+  );
 
       if (!acquired){
         const existing =await idempotencyService.get(
@@ -40,10 +44,11 @@ router.post("/internal/idempotency/test",async(req,res,next)=>{
       };
 
       await idempotencyService.complete(
-        "test",
-        idempotencyKey,
-        response,
-      );
+  "test",
+  idempotencyKey,
+  requestHash,
+  response,
+);
 
       return res.status(200).json({
         status: "completed",
