@@ -238,4 +238,64 @@ export class OrderController {
       next(error);
     }
   };
+
+  transitionOrder = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    if (
+      typeof id !== "string" ||
+      id.length === 0
+    ) {
+      throw new AppError(
+        "Order ID is required.",
+        400,
+        "ORDER_ID_REQUIRED",
+      );
+    }
+
+    const nextStatus = req.body?.status;
+
+    const validStatuses = [
+      "CREATED",
+      "PAYMENT_PENDING",
+      "PAID",
+      "PROCESSING",
+      "COMPLETED",
+      "PAYMENT_FAILED",
+      "CANCELLED",
+      "REFUND_PENDING",
+      "REFUNDED",
+    ] as const;
+
+    if (
+      typeof nextStatus !== "string" ||
+      !validStatuses.includes(
+        nextStatus as (typeof validStatuses)[number],
+      )
+    ) {
+      throw new AppError(
+        "Invalid order status.",
+        400,
+        "INVALID_ORDER_STATUS",
+      );
+    }
+
+    const order =
+      await this.orderService.transitionOrder(
+        id,
+        nextStatus as OrderStatus,
+      );
+
+    res.status(200).json({
+      data: order,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 }

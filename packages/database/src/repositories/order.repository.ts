@@ -1,4 +1,5 @@
 import type { Order, Prisma } from "@prisma/client";
+
 import { prisma } from "../client.js";
 
 export class OrderRepository {
@@ -6,57 +7,77 @@ export class OrderRepository {
     private readonly db:
       | typeof prisma
       | Prisma.TransactionClient = prisma,
-  ){}
+  ) {}
 
-  async findById(id: string) {
-    return this.db.order.findUnique({
-      where: { id },
+  async create(
+    data: Prisma.OrderCreateInput,
+  ): Promise<Order> {
+    return this.db.order.create({
+      data,
     });
   }
 
-  async findByOrderNumber(orderNumber: string) {
+  async findById(
+    id: string,
+  ): Promise<Order | null> {
     return this.db.order.findUnique({
-      where:{orderNumber },
-    });
-  }
-
-  async findByIdWithItems(id: string) {
-    return this.db.order.findUnique({
-      where: { id },
-      include: {
-        items: {
-          include: {
-            product: true,
-          },
-        },
+      where: {
+        id,
       },
     });
   }
 
-  async create(data: Prisma.OrderCreateInput) {
-    return this.db.order.create({
-      data,
+  async findByIdWithItems(
+    id: string,
+  ) {
+    return this.db.order.findUnique({
+      where: {
+        id,
+      },
+      include: {
+        items: true,
+      },
+    });
+  }
+
+  async findByOrderNumber(
+    orderNumber: string,
+  ) {
+    return this.db.order.findUnique({
+      where: {
+        orderNumber,
+      },
+      include: {
+        items: true,
+      },
+    });
+  }
+
+  async listByCustomerId(
+    customerId: string,
+  ) {
+    return this.db.order.findMany({
+      where: {
+        customerId,
+      },
+      include: {
+        items: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
     });
   }
 
   async update(
     id: string,
     data: Prisma.OrderUpdateInput,
-  ) {
+  ): Promise<Order> {
     return this.db.order.update({
-      where: { id },
-      data,
-    });
-  }
-
-  async listByCustomerId(customerId: string) {
-    return this.db.order.findMany({
       where: {
-        customerId,
+        id,
       },
-      orderBy: {
-        createdAt: "desc",
-      },
+      data,
     });
   }
 }

@@ -12,8 +12,7 @@ import { AppError } from "../../middleware/error-handler.js";
 
 import {
   assertValidOrderTransition,
-  type OrderStatus,
-} from "./order-state-machine.js";
+  type OrderStatus} from "./order-state-machine.js";
 
 import { generateOrderNumber } from "./order-number.js";
 
@@ -68,6 +67,36 @@ export class OrderService {
       },
     );
   }
+
+  async transitionOrder(
+  orderId: string,
+  nextStatus: OrderStatus,
+) {
+  const order =
+    await this.orderRepository.findByIdWithItems(
+      orderId,
+    );
+
+  if (!order) {
+    throw new AppError(
+      "Order not found.",
+      404,
+      "ORDER_NOT_FOUND",
+    );
+  }
+
+  assertValidOrderTransition(
+    order.status as OrderStatus,
+    nextStatus,
+  );
+
+  return this.orderRepository.update(
+    order.id,
+    {
+      status: nextStatus,
+    },
+  );
+}
 
   async createOrderFromCart(
     customerId: string,

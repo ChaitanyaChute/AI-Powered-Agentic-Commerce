@@ -36,4 +36,6 @@ router.get("/:id",orderController.getOrder);
 
 router.patch("/:id/status",orderController.transitionOrderStatus);
 
+router.patch("/:id/status", orderController.transitionOrder);
+
 export { router as orderRouter };
