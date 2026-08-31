@@ -8,6 +8,7 @@ import {errorHandler} from "./middleware/error-handler.js";
 import { healthRoutes } from "./modules/health/index.js";
 import jobsRoutes from "./modules/jobs/jobs.routes.js";
 import idempotencyRoutes from "./modules/idempotency/idempotency.routes.js";
+import { orderRouter } from "./modules/orders/index.js";
 
 
 export const createApp = ():Express =>{
@@ -63,6 +64,7 @@ export const createApp = ():Express =>{
     app.use(healthRoutes);
     app.use(jobsRoutes);
     app.use(idempotencyRoutes);
+    app.use("/api/orders", orderRouter);
 
     app.use(errorHandler)
 
