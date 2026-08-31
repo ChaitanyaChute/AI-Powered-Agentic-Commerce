@@ -15,6 +15,7 @@ import {
   OrderRepository,
   ProductRepository,
   prisma,
+  InventoryReservationRepository
 } from "@repo/database";
 
 import { createApp } from "../../app.js";
@@ -381,6 +382,15 @@ describe("Orders API", () => {
   });
 
   afterAll(async () => {
+
+    await prisma.inventoryReservation.deleteMany({
+  where: {
+    order: {
+      customerId,
+    },
+  },
+});
+
     await prisma.orderItem.deleteMany({
       where: {
         order: {
@@ -1957,5 +1967,154 @@ describe("Orders API", () => {
         [404, 400],
       ).toContain(response.status);
     });
+
+    it("creates an ACTIVE inventory reservation during checkout", async () => {
+  const testCartId =
+    await createCancellationOrderCart(2);
+
+  const createResponse =
+    await request(app)
+      .post("/api/orders")
+      .send({
+        customerId,
+        cartId: testCartId,
+      });
+
+  expect(createResponse.status).toBe(201);
+
+  const orderId =
+    createResponse.body.data.id;
+
+  const reservations =
+    await prisma.inventoryReservation.findMany({
+      where: {
+        orderId,
+      },
+    });
+
+  expect(reservations).toHaveLength(1);
+
+  expect(reservations[0]).toMatchObject({
+    orderId,
+    productId: cancellationProductId,
+    quantity: 2,
+    status: "ACTIVE",
+    releasedAt: null,
+  });
+});
+
+it("marks the order reservation as RELEASED when the order is cancelled", async () => {
+  const testCartId =
+    await createCancellationOrderCart(2);
+
+  const createResponse =
+    await request(app)
+      .post("/api/orders")
+      .send({
+        customerId,
+        cartId: testCartId,
+      });
+
+  expect(createResponse.status).toBe(201);
+
+  const orderId =
+    createResponse.body.data.id;
+
+  const before =
+    await prisma.inventoryReservation.findFirst({
+      where: {
+        orderId,
+        productId: cancellationProductId,
+      },
+    });
+
+  expect(before).not.toBeNull();
+
+  expect(before?.status).toBe("ACTIVE");
+  expect(before?.quantity).toBe(2);
+  expect(before?.releasedAt).toBeNull();
+
+  const cancelResponse =
+    await request(app)
+      .delete(`/api/orders/${orderId}`);
+
+  expect(cancelResponse.status).toBe(200);
+
+  const after =
+    await prisma.inventoryReservation.findFirst({
+      where: {
+        orderId,
+        productId: cancellationProductId,
+      },
+    });
+
+  expect(after).not.toBeNull();
+
+  expect(after?.status).toBe("RELEASED");
+  expect(after?.quantity).toBe(2);
+  expect(after?.releasedAt).not.toBeNull();
+});
+
+it("does not release the same reservation twice", async () => {
+  const testCartId =
+    await createCancellationOrderCart(1);
+
+  const createResponse =
+    await request(app)
+      .post("/api/orders")
+      .send({
+        customerId,
+        cartId: testCartId,
+      });
+
+  expect(createResponse.status).toBe(201);
+
+  const orderId =
+    createResponse.body.data.id;
+
+  const firstCancelResponse =
+    await request(app)
+      .delete(`/api/orders/${orderId}`);
+
+  expect(firstCancelResponse.status).toBe(200);
+
+  const firstReservation =
+    await prisma.inventoryReservation.findFirst({
+      where: {
+        orderId,
+        productId: cancellationProductId,
+      },
+    });
+
+  expect(firstReservation).not.toBeNull();
+  expect(firstReservation?.status).toBe("RELEASED");
+
+  const releasedAt =
+    firstReservation?.releasedAt;
+
+  const secondCancelResponse =
+    await request(app)
+      .delete(`/api/orders/${orderId}`);
+
+  expect(secondCancelResponse.status).toBe(200);
+
+  const secondReservation =
+    await prisma.inventoryReservation.findFirst({
+      where: {
+        orderId,
+        productId: cancellationProductId,
+      },
+    });
+
+  expect(secondReservation).not.toBeNull();
+
+  expect(secondReservation?.status).toBe(
+    "RELEASED",
+  );
+
+  expect(secondReservation?.releasedAt).toEqual(
+    releasedAt,
+  );
+});
   });
 });

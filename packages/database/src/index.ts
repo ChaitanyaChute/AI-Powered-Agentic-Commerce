@@ -7,3 +7,4 @@ export {CartItemRepository} from "./repositories/cart-item.repository.js";
 export {OrderRepository} from "./repositories/order.repository.js";
 export {OrderItemRepository} from "./repositories/order-item.repository.js";
 export {PaymentRepository} from "./repositories/payment.repository.js";
+export { InventoryReservationRepository} from "./repositories/inventory-reservation.repository.js";

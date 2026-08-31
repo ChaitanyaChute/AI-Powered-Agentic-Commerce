@@ -6,13 +6,15 @@ import {
   OrderItemRepository,
   OrderRepository,
   ProductRepository,
+  InventoryReservationRepository,
 } from "@repo/database";
 
 import { AppError } from "../../middleware/error-handler.js";
 
 import {
   assertValidOrderTransition,
-  type OrderStatus} from "./order-state-machine.js";
+  type OrderStatus,
+} from "./order-state-machine.js";
 
 import { generateOrderNumber } from "./order-number.js";
 
@@ -37,6 +39,7 @@ export class OrderService {
   async listCustomerOrders(customerId: string) {
     return this.orderRepository.listByCustomerId(customerId);
   }
+
 
   async transitionOrderStatus(
     orderId: string,
@@ -69,45 +72,11 @@ export class OrderService {
   }
 
   async transitionOrder(
-  orderId: string,
-  nextStatus: OrderStatus,
-) {
-  const order =
-    await this.orderRepository.findByIdWithItems(
-      orderId,
-    );
-
-  if (!order) {
-    throw new AppError(
-      "Order not found.",
-      404,
-      "ORDER_NOT_FOUND",
-    );
-  }
-
-  assertValidOrderTransition(
-    order.status as OrderStatus,
-    nextStatus,
-  );
-
-  return this.orderRepository.update(
-    order.id,
-    {
-      status: nextStatus,
-    },
-  );
-}
-
-async cancelOrder(orderId: string) {
-  return withDatabaseTransaction(async (tx) => {
-    const txOrderRepository =
-      new OrderRepository(tx);
-
-    const txInventoryRepository =
-      new InventoryRepository(tx);
-
+    orderId: string,
+    nextStatus: OrderStatus,
+  ) {
     const order =
-      await txOrderRepository.findByIdWithItems(
+      await this.orderRepository.findByIdWithItems(
         orderId,
       );
 
@@ -119,72 +88,110 @@ async cancelOrder(orderId: string) {
       );
     }
 
-    // Cancellation is idempotent.
-    // If the order is already cancelled, do not
-    // release inventory again.
-    if (order.status === "CANCELLED") {
-      return order;
-    }
+    assertValidOrderTransition(
+      order.status as OrderStatus,
+      nextStatus,
+    );
 
-    // Only CREATED orders can be cancelled.
-    if (order.status !== "CREATED") {
-      throw new AppError(
-        `Cannot transition order from ${order.status} to CANCELLED.`,
-        409,
-        "INVALID_ORDER_STATUS_TRANSITION",
-      );
-    }
+    return this.orderRepository.update(
+      order.id,
+      {
+        status: nextStatus,
+      },
+    );
+  }
 
-    // Release every inventory reservation exactly once.
-    for (const item of order.items) {
-      const inventory =
-        await txInventoryRepository.findByProductId(
-          item.productId,
+  async cancelOrder(orderId: string) {
+    return withDatabaseTransaction(async (tx) => {
+      const txOrderRepository =
+        new OrderRepository(tx);
+
+      const txInventoryRepository =
+        new InventoryRepository(tx);
+
+      const txReservationRepository =
+        new InventoryReservationRepository(tx);
+
+      const order =
+        await txOrderRepository.findByIdWithItems(
+          orderId,
         );
 
-      if (!inventory) {
+      if (!order) {
         throw new AppError(
-          `Inventory not found for product ${item.productId}.`,
+          "Order not found.",
           404,
-          "INVENTORY_NOT_FOUND",
+          "ORDER_NOT_FOUND",
         );
       }
 
-      await txInventoryRepository.release(
-        inventory.id,
-        item.quantity,
+      if (order.status === "CANCELLED") {
+        return order;
+      }
+
+      if (order.status !== "CREATED") {
+        throw new AppError(
+          `Cannot transition order from ${order.status} to CANCELLED.`,
+          409,
+          "INVALID_ORDER_STATUS_TRANSITION",
+        );
+      }
+
+      assertValidOrderTransition(
+        order.status as OrderStatus,
+        "CANCELLED",
       );
-    }
 
-    // Use the same state-machine validation used
-    // everywhere else in the order lifecycle.
-    assertValidOrderTransition(
-      order.status as OrderStatus,
-      "CANCELLED",
-    );
+      const activeReservations =
+        await txReservationRepository.listActiveByOrderId(
+          orderId,
+        );
 
-    await txOrderRepository.update(
-      order.id,
-      {
-        status: "CANCELLED",
-      },
-    );
+      for (const reservation of activeReservations) {
+        const inventory =
+          await txInventoryRepository.findByProductId(
+            reservation.productId,
+          );
 
-    // IMPORTANT:
-    // Return the same complete representation as
-    // the already-cancelled branch.
-    return txOrderRepository.findByIdWithItems(
-      order.id,
-    );
-  });
-}
+        if (!inventory) {
+          throw new AppError(
+            `Inventory not found for product ${reservation.productId}.`,
+            404,
+            "INVENTORY_NOT_FOUND",
+          );
+        }
+
+        await txInventoryRepository.release(
+          inventory.id,
+          reservation.quantity,
+        );
+
+        await txReservationRepository.markReleased(
+          reservation.id,
+        );
+      }
+
+      await txOrderRepository.update(
+        order.id,
+        {
+          status: "CANCELLED",
+        },
+      );
+
+      return txOrderRepository.findByIdWithItems(
+        order.id,
+      );
+    });
+  }
 
   async createOrderFromCart(
     customerId: string,
     cartId: string,
   ) {
     const customer =
-      await this.customerRepository.findById(customerId);
+      await this.customerRepository.findById(
+        customerId,
+      );
 
     if (!customer) {
       throw new AppError(
@@ -195,7 +202,9 @@ async cancelOrder(orderId: string) {
     }
 
     const cart =
-      await this.cartRepository.findByIdWithItems(cartId);
+      await this.cartRepository.findByIdWithItems(
+        cartId,
+      );
 
     if (!cart) {
       throw new AppError(
@@ -230,7 +239,8 @@ async cancelOrder(orderId: string) {
     }
 
     return withDatabaseTransaction(async (tx) => {
-      const txCartRepository = new CartRepository(tx);
+      const txCartRepository =
+        new CartRepository(tx);
 
       const txInventoryRepository =
         new InventoryRepository(tx);
@@ -241,9 +251,20 @@ async cancelOrder(orderId: string) {
       const txOrderItemRepository =
         new OrderItemRepository(tx);
 
+      const txReservationRepository =
+        new InventoryReservationRepository(tx);
+
       let subtotalMinor = 0;
 
-      const orderItems = [];
+      const orderItems: Array<{
+        productId: string;
+        productName: string;
+        sku: string;
+        unitPriceMinor: number;
+        currency: string;
+        quantity: number;
+        totalMinor: number;
+      }> = [];
 
       for (const item of cart.items) {
         const product =
@@ -289,9 +310,13 @@ async cancelOrder(orderId: string) {
         }
 
         const availableQuantity =
-          inventory.quantity - inventory.reserved;
+          inventory.quantity -
+          inventory.reserved;
 
-        if (availableQuantity < item.quantity) {
+        if (
+          availableQuantity <
+          item.quantity
+        ) {
           throw new AppError(
             `Insufficient inventory for product ${product.id}.`,
             409,
@@ -303,7 +328,8 @@ async cancelOrder(orderId: string) {
           product.priceMinor;
 
         const totalMinor =
-          unitPriceMinor * item.quantity;
+          unitPriceMinor *
+          item.quantity;
 
         subtotalMinor += totalMinor;
 
@@ -320,21 +346,23 @@ async cancelOrder(orderId: string) {
 
       const order =
         await txOrderRepository.create({
-          orderNumber: generateOrderNumber(),
+          orderNumber:
+            generateOrderNumber(),
+
           customer: {
             connect: {
               id: customer.id,
             },
           },
 
-          // 35.9:
-          // Every newly-created order starts
-          // at the CREATED state.
           status: "CREATED",
 
           currency: "INR",
+
           subtotalMinor,
-          totalMinor: subtotalMinor,
+
+          totalMinor:
+            subtotalMinor,
         });
 
       await txOrderItemRepository.createMany(
@@ -362,8 +390,14 @@ async cancelOrder(orderId: string) {
           inventory.id,
           item.quantity,
         );
-      }
 
+  
+        await txReservationRepository.create({
+          orderId: order.id,
+          productId: item.productId,
+          quantity: item.quantity,
+        });
+      }
       await txCartRepository.update(
         cart.id,
         {
@@ -374,6 +408,68 @@ async cancelOrder(orderId: string) {
       return txOrderRepository.findByIdWithItems(
         order.id,
       );
+    });
+  }
+
+  
+  async releaseOrderInventory(
+    orderId: string,
+  ) {
+    return withDatabaseTransaction(async (tx) => {
+      const txOrderRepository =
+        new OrderRepository(tx);
+
+      const txInventoryRepository =
+        new InventoryRepository(tx);
+
+      const txReservationRepository =
+        new InventoryReservationRepository(tx);
+
+      const order =
+        await txOrderRepository.findByIdWithItems(
+          orderId,
+        );
+
+      if (!order) {
+        throw new AppError(
+          "Order not found.",
+          404,
+          "ORDER_NOT_FOUND",
+        );
+      }
+
+      const activeReservations =
+        await txReservationRepository.listActiveByOrderId(
+          orderId,
+        );
+
+      for (
+        const reservation of activeReservations
+      ) {
+        const inventory =
+          await txInventoryRepository.findByProductId(
+            reservation.productId,
+          );
+
+        if (!inventory) {
+          throw new AppError(
+            `Inventory not found for product ${reservation.productId}.`,
+            404,
+            "INVENTORY_NOT_FOUND",
+          );
+        }
+
+        await txInventoryRepository.release(
+          inventory.id,
+          reservation.quantity,
+        );
+
+        await txReservationRepository.markReleased(
+          reservation.id,
+        );
+      }
+
+      return activeReservations;
     });
   }
 }

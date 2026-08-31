@@ -37,6 +37,11 @@ enum PaymentProvider {
   RAZORPAY
 }
 
+enum InventoryReservationStatus {
+  ACTIVE
+  RELEASED
+}
+
 model Customer {
   id        String   @id @default(uuid())
   email     String   @unique
@@ -65,6 +70,7 @@ model Product {
   inventory  Inventory?
   cartItems  CartItem[]
   orderItems OrderItem[]
+  reservations InventoryReservation[]
 
   @@index([active])
   @@index([createdAt])
@@ -129,6 +135,7 @@ model Order {
 
   items    OrderItem[]
   payments Payment[]
+  reservations InventoryReservation[]
 
   @@index([customerId, createdAt])
   @@index([status, createdAt])
@@ -170,4 +177,23 @@ model Payment {
   @@index([orderId, createdAt])
   @@index([status, createdAt])
   @@index([provider])
+}
+
+model InventoryReservation {
+  id         String                       @id @default(uuid())
+  orderId    String
+  productId  String
+  quantity   Int
+  status     InventoryReservationStatus   @default(ACTIVE)
+  createdAt  DateTime                     @default(now())
+  releasedAt DateTime?
+
+  order Order @relation(fields: [orderId],references: [id],onDelete: Restrict,onUpdate: Cascade)
+
+  product Product @relation(fields: [productId],references: [id],onDelete: Restrict,onUpdate: Cascade)
+
+  @@unique([orderId, productId])
+  @@index([orderId])
+  @@index([productId])
+  @@index([status])
 }
