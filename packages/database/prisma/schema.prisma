@@ -67,9 +67,9 @@ model Product {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  inventory  Inventory?
-  cartItems  CartItem[]
-  orderItems OrderItem[]
+  inventory    Inventory?
+  cartItems    CartItem[]
+  orderItems   OrderItem[]
   reservations InventoryReservation[]
 
   @@index([active])
@@ -133,8 +133,8 @@ model Order {
 
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
-  items    OrderItem[]
-  payments Payment[]
+  items        OrderItem[]
+  payments     Payment[]
   reservations InventoryReservation[]
 
   @@index([customerId, createdAt])
@@ -165,6 +165,7 @@ model Payment {
   id                String          @id @default(uuid())
   orderId           String
   provider          PaymentProvider
+  providerOrderId   String?
   providerPaymentId String?         @unique
   amountMinor       Int
   currency          String          @default("INR")
@@ -174,23 +175,44 @@ model Payment {
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
+  attempts PaymentAttempt[]
+
   @@index([orderId, createdAt])
   @@index([status, createdAt])
   @@index([provider])
+  @@index([providerOrderId])
+}
+
+model PaymentAttempt {
+  id                String        @id @default(uuid())
+  paymentId         String
+  attemptNumber     Int
+  status            PaymentStatus @default(CREATED)
+  providerReference String?
+  failureCode       String?
+  failureMessage    String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([paymentId, attemptNumber])
+  @@index([paymentId, createdAt])
+  @@index([status, createdAt])
 }
 
 model InventoryReservation {
-  id         String                       @id @default(uuid())
+  id         String                     @id @default(uuid())
   orderId    String
   productId  String
   quantity   Int
-  status     InventoryReservationStatus   @default(ACTIVE)
-  createdAt  DateTime                     @default(now())
+  status     InventoryReservationStatus @default(ACTIVE)
+  createdAt  DateTime                   @default(now())
   releasedAt DateTime?
 
-  order Order @relation(fields: [orderId],references: [id],onDelete: Restrict,onUpdate: Cascade)
+  order Order @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
-  product Product @relation(fields: [productId],references: [id],onDelete: Restrict,onUpdate: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([orderId, productId])
   @@index([orderId])

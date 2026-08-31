@@ -188,7 +188,27 @@ export class OrderService {
     customerId: string,
     cartId: string,
   ) {
-    const customer =
+
+    return withDatabaseTransaction(async (tx) => {
+
+  const txCartRepository =
+        new CartRepository(tx);
+
+      const txInventoryRepository =
+        new InventoryRepository(tx);
+
+      const txOrderRepository =
+        new OrderRepository(tx);
+
+      const txOrderItemRepository =
+        new OrderItemRepository(tx);
+
+      const txReservationRepository =
+        new InventoryReservationRepository(tx);
+
+       
+
+  const customer =
       await this.customerRepository.findById(
         customerId,
       );
@@ -202,7 +222,7 @@ export class OrderService {
     }
 
     const cart =
-      await this.cartRepository.findByIdWithItems(
+      await txCartRepository.findByIdWithItems(
         cartId,
       );
 
@@ -238,21 +258,6 @@ export class OrderService {
       );
     }
 
-    return withDatabaseTransaction(async (tx) => {
-      const txCartRepository =
-        new CartRepository(tx);
-
-      const txInventoryRepository =
-        new InventoryRepository(tx);
-
-      const txOrderRepository =
-        new OrderRepository(tx);
-
-      const txOrderItemRepository =
-        new OrderItemRepository(tx);
-
-      const txReservationRepository =
-        new InventoryReservationRepository(tx);
 
       let subtotalMinor = 0;
 
@@ -310,8 +315,7 @@ export class OrderService {
         }
 
         const availableQuantity =
-          inventory.quantity -
-          inventory.reserved;
+          inventory.quantity - inventory.reserved;
 
         if (
           availableQuantity <
@@ -386,10 +390,25 @@ export class OrderService {
           );
         }
 
-        await txInventoryRepository.reserve(
-          inventory.id,
-          item.quantity,
-        );
+        try {
+  await txInventoryRepository.reserve(
+    inventory.id,
+    item.quantity,
+  );
+} catch (error) {
+  if (
+    error instanceof Error &&
+    error.message === "Insufficient inventory."
+  ) {
+    throw new AppError(
+      `Insufficient inventory for product ${item.productId}.`,
+      409,
+      "INSUFFICIENT_INVENTORY",
+    );
+  }
+
+  throw error;
+}
 
   
         await txReservationRepository.create({
