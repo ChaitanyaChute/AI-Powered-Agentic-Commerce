@@ -1,49 +1,69 @@
-import type { Payment, Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../client.js";
 
 export class PaymentRepository {
-  async findById(id: string): Promise<Payment | null> {
+  async createPayment(
+    data: Prisma.PaymentCreateInput,
+  ) {
+    return prisma.payment.create({
+      data,
+    });
+  }
+
+  async getPaymentById(id: string) {
     return prisma.payment.findUnique({
       where: { id },
     });
   }
 
-  async findByOrderId(orderId: string): Promise<Payment[]> {
-    return prisma.payment.findMany({
-      where: {
-        orderId,
-      },
+  async getPaymentByOrderId(orderId: string) {
+    return prisma.payment.findFirst({
+      where: { orderId },
       orderBy: {
         createdAt: "desc",
       },
     });
   }
 
-  async findByProviderPaymentId(
-    providerPaymentId: string,
-  ): Promise<Payment | null> {
-    return prisma.payment.findUnique({
-      where: {
-        providerPaymentId,
+  async createAttempt(
+    data: Prisma.PaymentAttemptCreateInput,
+  ) {
+    return prisma.paymentAttempt.create({
+      data,
+    });
+  }
+
+  async updatePaymentStatus(
+    id: string,
+    status: Prisma.PaymentUpdateInput["status"],
+  ) {
+    return prisma.payment.update({
+      where: { id },
+      data: {
+        status,
       },
     });
   }
 
-  async create(
-    data: Prisma.PaymentCreateInput,
-  ): Promise<Payment> {
-    return prisma.payment.create({
-      data,
+  async updateProviderOrderId(
+    id: string,
+    providerOrderId: string,
+  ) {
+    return prisma.payment.update({
+      where: { id },
+      data: {
+        providerOrderId,
+      },
     });
   }
 
-  async update(
-    id: string,
-    data: Prisma.PaymentUpdateInput,
-  ): Promise<Payment> {
-    return prisma.payment.update({
-      where: { id },
-      data,
+  async findByProviderPaymentId(
+    providerPaymentId: string,
+  ) {
+    return prisma.payment.findUnique({
+      where: {
+        providerPaymentId,
+      },
     });
   }
 }
