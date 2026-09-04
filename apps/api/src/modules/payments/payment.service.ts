@@ -15,6 +15,11 @@ import {
   type PaymentStatus,
 } from "./payment-state-machine.js";
 
+import {
+  PaymentError,
+  PaymentErrorCode,
+} from "./payment-errors.js";
+
 export interface CreatePaymentForOrderInput {
   orderId: string;
 }
@@ -38,10 +43,10 @@ export class PaymentService {
       await this.paymentRepository.getPaymentById(id);
 
     if (!payment) {
-      throw new AppError(
+      throw new PaymentError(
+        PaymentErrorCode.NOT_FOUND,
         "Payment not found.",
         404,
-        "PAYMENT_NOT_FOUND",
       );
     }
 
@@ -49,62 +54,65 @@ export class PaymentService {
   }
 
   async createPaymentForOrder(
-    input: CreatePaymentForOrderInput,
-  ): Promise<CreatePaymentForOrderResult> {
-    const order =
-      await this.orderRepository.findByIdWithItems(
-        input.orderId,
-      );
+  input: CreatePaymentForOrderInput,
+): Promise<CreatePaymentForOrderResult> {
+  const order =
+    await this.orderRepository.findByIdWithItems(
+      input.orderId,
+    );
 
-    if (!order) {
-      throw new AppError(
-        "Order not found.",
-        404,
-        "ORDER_NOT_FOUND",
-      );
-    }
+  if (!order) {
+    throw new AppError(
+      "Order not found.",
+      404,
+      "ORDER_NOT_FOUND",
+    );
+  }
 
-    if (
-      order.status !== "CREATED" &&
-      order.status !== "PAYMENT_PENDING"
-    ) {
-      throw new AppError(
-        `Cannot create payment for order in ${order.status} state.`,
-        409,
-        "INVALID_ORDER_PAYMENT_STATE",
-      );
-    }
+  if (
+    order.status !== "CREATED" &&
+    order.status !== "PAYMENT_PENDING"
+  ) {
+    throw new PaymentError(
+      PaymentErrorCode.INVALID_STATE,
+      `Cannot create payment for order in ${order.status} state.`,
+      409,
+    );
+  }
 
-    const existingPayment =
-      await this.paymentRepository.getPaymentByOrderId(
-        order.id,
-      );
+  const existingPayment =
+    await this.paymentRepository.getPaymentByOrderId(
+      order.id,
+    );
 
-    if (existingPayment) {
-      throw new AppError(
-        "A payment already exists for this order.",
-        409,
-        "PAYMENT_ALREADY_EXISTS",
-      );
-    }
+  if (existingPayment) {
+    throw new PaymentError(
+      PaymentErrorCode.ALREADY_EXISTS,
+      "A payment already exists for this order.",
+      409,
+    );
+  }
 
-    const amountMinor = order.totalMinor;
-    const currency = order.currency;
+  const amountMinor = order.totalMinor;
+  const currency = order.currency;
 
-    const payment =
-      await this.paymentRepository.createPayment({
-        order: {
-          connect: {
-            id: order.id,
-          },
+  const payment =
+    await this.paymentRepository.createPayment({
+      order: {
+        connect: {
+          id: order.id,
         },
-        provider: this.paymentProvider.name,
-        amountMinor,
-        currency,
-        status: "CREATED",
-      });
+      },
+      provider: this.paymentProvider.name,
+      amountMinor,
+      currency,
+      status: "CREATED",
+    });
 
-    const providerOrder =
+  let providerOrder: CreatePaymentOrderResult;
+
+  try {
+    providerOrder =
       await this.paymentProvider.createOrder({
         paymentId: payment.id,
         orderId: order.id,
@@ -112,30 +120,62 @@ export class PaymentService {
         currency,
         receipt: order.orderNumber,
       });
-
-    await this.paymentRepository.createAttempt({
-      payment: {
-        connect: {
-          id: payment.id,
-        },
-      },
-      attemptNumber: 1,
-      status: "CREATED",
-      providerReference:
-        providerOrder.providerOrderId,
-    });
-
-    const updatedPayment =
-      await this.paymentRepository.updateProviderOrderId(
-        payment.id,
-        providerOrder.providerOrderId,
-      );
-
-    return {
-      payment: updatedPayment,
-      providerOrder,
-    };
+  } catch (error) {
+    throw new PaymentError(
+      PaymentErrorCode.CREATION_FAILED,
+      "Failed to create payment with provider.",
+      502,
+      error,
+    );
   }
+
+  if (providerOrder.amountMinor !== amountMinor) {
+    throw new PaymentError(
+      PaymentErrorCode.AMOUNT_MISMATCH,
+      "Payment amount does not match the order total.",
+      409,
+      {
+        expectedAmountMinor: amountMinor,
+        providerAmountMinor: providerOrder.amountMinor,
+      },
+    );
+  }
+
+  if (providerOrder.currency !== currency) {
+    throw new PaymentError(
+      PaymentErrorCode.CURRENCY_MISMATCH,
+      "Payment currency does not match the order currency.",
+      409,
+      {
+        expectedCurrency: currency,
+        providerCurrency: providerOrder.currency,
+      },
+    );
+  }
+
+  await this.paymentRepository.createAttempt({
+    payment: {
+      connect: {
+        id: payment.id,
+      },
+    },
+    attemptNumber: 1,
+    status: "CREATED",
+    providerReference:
+      providerOrder.providerOrderId,
+  });
+
+  const updatedPayment =
+    await this.paymentRepository.updateProviderOrderId(
+      payment.id,
+      providerOrder.providerOrderId,
+    );
+
+  return {
+    payment: updatedPayment,
+    providerOrder,
+  };
+}
 
   async transitionPaymentStatus(
     paymentId: string,
@@ -147,10 +187,10 @@ export class PaymentService {
       );
 
     if (!payment) {
-      throw new AppError(
+      throw new PaymentError(
+        PaymentErrorCode.NOT_FOUND,
         "Payment not found.",
         404,
-        "PAYMENT_NOT_FOUND",
       );
     }
 
