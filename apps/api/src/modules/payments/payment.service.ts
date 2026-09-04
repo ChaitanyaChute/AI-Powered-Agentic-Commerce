@@ -10,6 +10,9 @@ import type {
   PaymentProvider,
   CreatePaymentOrderResult,
 } from "@repo/shared";
+import type {
+  RazorpayWebhookPayload,
+} from "../webhooks/webhook.schemas.js";
 
 import {
   assertValidPaymentTransition,
@@ -44,6 +47,21 @@ export interface CaptureAuthorizedPaymentResult {
     ReturnType<PaymentRepository["getPaymentById"]>
   >;
   providerPayment?: CapturePaymentResult;
+}
+
+export interface PaymentStatusResult {
+  id: string;
+  orderId: string;
+  status: PaymentStatus;
+  amount: number;
+  currency: string;
+}
+
+export interface ProcessRazorpayWebhookResult {
+  event: RazorpayWebhookPayload["event"];
+  processed: boolean;
+  paymentId?: string;
+  orderId?: string;
 }
 
 export interface PaymentAuditService {
@@ -84,6 +102,61 @@ export class PaymentService {
     }
 
     return payment;
+  }
+
+  async getPaymentStatusForCustomer(
+    paymentId: string,
+    customerId: string,
+  ): Promise<PaymentStatusResult> {
+    const payment =
+      await this.paymentRepository.getPaymentById(
+        paymentId,
+      );
+
+    if (!payment) {
+      throw new PaymentError(
+        PaymentErrorCode.NOT_FOUND,
+        "Payment not found.",
+        404,
+      );
+    }
+
+    const order =
+      await this.orderRepository.findByIdWithItems(
+        payment.orderId,
+      );
+
+    if (!order) {
+      throw new AppError(
+        "Order not found.",
+        404,
+        "ORDER_NOT_FOUND",
+      );
+    }
+
+    if (order.id !== payment.orderId) {
+      throw new PaymentError(
+        PaymentErrorCode.ORDER_MISMATCH,
+        "Payment does not belong to this order.",
+        409,
+      );
+    }
+
+    if (order.customerId !== customerId) {
+      throw new PaymentError(
+        PaymentErrorCode.OWNERSHIP_MISMATCH,
+        "Payment does not belong to this customer.",
+        403,
+      );
+    }
+
+    return {
+      id: payment.id,
+      orderId: payment.orderId,
+      status: payment.status as PaymentStatus,
+      amount: payment.amountMinor,
+      currency: payment.currency,
+    };
   }
 
   async createPaymentForOrder(
@@ -435,6 +508,32 @@ export class PaymentService {
     };
   }
 
+  async processRazorpayWebhook(
+    payload: RazorpayWebhookPayload,
+  ): Promise<ProcessRazorpayWebhookResult> {
+    switch (payload.event) {
+      case "payment.authorized":
+        return this.processRazorpayAuthorizedWebhook(
+          payload,
+        );
+
+      case "payment.captured":
+        return this.processRazorpayCapturedWebhook(
+          payload,
+        );
+
+      case "payment.failed":
+        return this.processRazorpayFailedWebhook(
+          payload,
+        );
+
+      case "order.paid":
+        return this.processRazorpayOrderPaidWebhook(
+          payload,
+        );
+    }
+  }
+
   async verifyCheckoutPayment(
     input: VerifyCheckoutPaymentInput,
   ) {
@@ -664,6 +763,463 @@ export class PaymentService {
       payment: captureResult.payment,
       capture: captureResult,
     };
+  }
+
+  private async processRazorpayAuthorizedWebhook(
+    payload: RazorpayWebhookPayload,
+  ): Promise<ProcessRazorpayWebhookResult> {
+    const entity =
+      this.getPaymentWebhookEntity(payload);
+    const payment =
+      await this.findPaymentForRazorpayPayment(
+        entity.id,
+        entity.order_id,
+      );
+    const order =
+      await this.getOrderForPayment(payment);
+
+    this.assertWebhookPaymentMatches(
+      payment,
+      order,
+      entity,
+    );
+
+    if (
+      payment.status === "CAPTURED" ||
+      payment.status === "REFUNDED" ||
+      payment.status === "REFUND_PENDING"
+    ) {
+      return {
+        event: payload.event,
+        processed: true,
+        paymentId: payment.id,
+        orderId: order.id,
+      };
+    }
+
+    const authorizedPayment =
+      await this.paymentRepository.updateProviderPaymentStatus(
+        {
+          id: payment.id,
+          providerPaymentId: entity.id,
+          status: "AUTHORIZED",
+        },
+      );
+
+    await this.auditService?.record({
+      type: "PAYMENT_AUTHORIZED_WEBHOOK",
+      paymentId: authorizedPayment.id,
+      orderId: order.id,
+      customerId: order.customerId,
+      metadata: {
+        providerOrderId: entity.order_id,
+        providerPaymentId: entity.id,
+      },
+    });
+
+    await this.captureAuthorizedPayment({
+      paymentId: authorizedPayment.id,
+    });
+
+    return {
+      event: payload.event,
+      processed: true,
+      paymentId: authorizedPayment.id,
+      orderId: order.id,
+    };
+  }
+
+  private async processRazorpayCapturedWebhook(
+    payload: RazorpayWebhookPayload,
+  ): Promise<ProcessRazorpayWebhookResult> {
+    const entity =
+      this.getPaymentWebhookEntity(payload);
+    const payment =
+      await this.findPaymentForRazorpayPayment(
+        entity.id,
+        entity.order_id,
+      );
+    const order =
+      await this.getOrderForPayment(payment);
+
+    this.assertWebhookPaymentMatches(
+      payment,
+      order,
+      entity,
+    );
+
+    const capturedPayment =
+      payment.status === "CAPTURED" &&
+      payment.providerPaymentId === entity.id
+        ? payment
+        : await this.paymentRepository.updateProviderPaymentStatus(
+            {
+              id: payment.id,
+              providerPaymentId: entity.id,
+              status: "CAPTURED",
+            },
+          );
+
+    if (order.status !== "PAID") {
+      await this.orderRepository.update(
+        order.id,
+        {
+          status: "PAID",
+        },
+      );
+    }
+
+    await this.auditService?.record({
+      type: "PAYMENT_CAPTURED_WEBHOOK",
+      paymentId: capturedPayment.id,
+      orderId: order.id,
+      customerId: order.customerId,
+      metadata: {
+        providerOrderId: entity.order_id,
+        providerPaymentId: entity.id,
+      },
+    });
+
+    return {
+      event: payload.event,
+      processed: true,
+      paymentId: capturedPayment.id,
+      orderId: order.id,
+    };
+  }
+
+  private async processRazorpayFailedWebhook(
+    payload: RazorpayWebhookPayload,
+  ): Promise<ProcessRazorpayWebhookResult> {
+    const entity =
+      this.getPaymentWebhookEntity(payload);
+    const payment =
+      await this.findPaymentForRazorpayPayment(
+        entity.id,
+        entity.order_id,
+      );
+    const order =
+      await this.getOrderForPayment(payment);
+
+    this.assertWebhookPaymentMatches(
+      payment,
+      order,
+      entity,
+    );
+
+    if (
+      payment.status === "CAPTURED" ||
+      payment.status === "REFUNDED" ||
+      payment.status === "REFUND_PENDING"
+    ) {
+      return {
+        event: payload.event,
+        processed: true,
+        paymentId: payment.id,
+        orderId: order.id,
+      };
+    }
+
+    const failedPayment =
+      await this.paymentRepository.updateProviderPaymentStatus(
+        {
+          id: payment.id,
+          providerPaymentId: entity.id,
+          status: "FAILED",
+        },
+      );
+
+    await this.orderRepository.update(
+      order.id,
+      {
+        status: "PAYMENT_FAILED",
+      },
+    );
+
+    await this.auditService?.record({
+      type: "PAYMENT_FAILED_WEBHOOK",
+      paymentId: failedPayment.id,
+      orderId: order.id,
+      customerId: order.customerId,
+      metadata: {
+        providerOrderId: entity.order_id,
+        providerPaymentId: entity.id,
+        failureCode: entity.error_code,
+        failureMessage:
+          entity.error_description,
+      },
+    });
+
+    return {
+      event: payload.event,
+      processed: true,
+      paymentId: failedPayment.id,
+      orderId: order.id,
+    };
+  }
+
+  private async processRazorpayOrderPaidWebhook(
+    payload: RazorpayWebhookPayload,
+  ): Promise<ProcessRazorpayWebhookResult> {
+    const entity =
+      payload.payload.order?.entity;
+
+    if (!entity) {
+      throw new AppError(
+        "Razorpay order webhook payload is missing order data.",
+        400,
+        "RAZORPAY_WEBHOOK_ORDER_MISSING",
+      );
+    }
+
+    const payment =
+      await this.paymentRepository.findByProviderOrderId(
+        entity.id,
+      );
+
+    if (!payment) {
+      throw new PaymentError(
+        PaymentErrorCode.NOT_FOUND,
+        "Payment not found for Razorpay order.",
+        404,
+      );
+    }
+
+    const order =
+      await this.getOrderForPayment(payment);
+
+    if (
+      typeof entity.amount_paid === "number" &&
+      entity.amount_paid !== payment.amountMinor
+    ) {
+      throw new PaymentError(
+        PaymentErrorCode.AMOUNT_MISMATCH,
+        "Razorpay order paid amount does not match the internal payment amount.",
+        409,
+        {
+          expectedAmountMinor:
+            payment.amountMinor,
+          providerAmountMinor:
+            entity.amount_paid,
+        },
+      );
+    }
+
+    if (
+      entity.currency &&
+      entity.currency !== payment.currency
+    ) {
+      throw new PaymentError(
+        PaymentErrorCode.CURRENCY_MISMATCH,
+        "Razorpay order currency does not match the internal payment currency.",
+        409,
+        {
+          expectedCurrency:
+            payment.currency,
+          providerCurrency:
+            entity.currency,
+        },
+      );
+    }
+
+    if (payment.status !== "CAPTURED") {
+      await this.paymentRepository.updatePaymentStatus(
+        payment.id,
+        "CAPTURED",
+      );
+    }
+
+    if (order.status !== "PAID") {
+      await this.orderRepository.update(
+        order.id,
+        {
+          status: "PAID",
+        },
+      );
+    }
+
+    await this.auditService?.record({
+      type: "ORDER_PAID_WEBHOOK",
+      paymentId: payment.id,
+      orderId: order.id,
+      customerId: order.customerId,
+      metadata: {
+        providerOrderId: entity.id,
+      },
+    });
+
+    return {
+      event: payload.event,
+      processed: true,
+      paymentId: payment.id,
+      orderId: order.id,
+    };
+  }
+
+  private getPaymentWebhookEntity(
+    payload: RazorpayWebhookPayload,
+  ) {
+    const entity =
+      payload.payload.payment?.entity;
+
+    if (!entity) {
+      throw new AppError(
+        "Razorpay payment webhook payload is missing payment data.",
+        400,
+        "RAZORPAY_WEBHOOK_PAYMENT_MISSING",
+      );
+    }
+
+    return entity;
+  }
+
+  private async findPaymentForRazorpayPayment(
+    providerPaymentId: string,
+    providerOrderId: string,
+  ) {
+    const paymentByProviderPaymentId =
+      await this.paymentRepository.findByProviderPaymentId(
+        providerPaymentId,
+      );
+
+    if (paymentByProviderPaymentId) {
+      return paymentByProviderPaymentId;
+    }
+
+    const paymentByProviderOrderId =
+      await this.paymentRepository.findByProviderOrderId(
+        providerOrderId,
+      );
+
+    if (!paymentByProviderOrderId) {
+      throw new PaymentError(
+        PaymentErrorCode.NOT_FOUND,
+        "Payment not found for Razorpay webhook.",
+        404,
+      );
+    }
+
+    return paymentByProviderOrderId;
+  }
+
+  private async getOrderForPayment(
+    payment: Awaited<
+      ReturnType<
+        PaymentRepository["getPaymentById"]
+      >
+    >,
+  ) {
+    if (!payment) {
+      throw new PaymentError(
+        PaymentErrorCode.NOT_FOUND,
+        "Payment not found.",
+        404,
+      );
+    }
+
+    const order =
+      await this.orderRepository.findByIdWithItems(
+        payment.orderId,
+      );
+
+    if (!order) {
+      throw new AppError(
+        "Order not found.",
+        404,
+        "ORDER_NOT_FOUND",
+      );
+    }
+
+    return order;
+  }
+
+  private assertWebhookPaymentMatches(
+    payment: NonNullable<
+      Awaited<
+        ReturnType<
+          PaymentRepository["getPaymentById"]
+        >
+      >
+    >,
+    order: NonNullable<
+      Awaited<
+        ReturnType<
+          OrderRepository["findByIdWithItems"]
+        >
+      >
+    >,
+    entity: {
+      id: string;
+      order_id: string;
+      amount: number;
+      currency: string;
+    },
+  ): void {
+    if (
+      payment.providerOrderId !==
+      entity.order_id
+    ) {
+      throw new PaymentError(
+        PaymentErrorCode.ORDER_MISMATCH,
+        "Razorpay payment does not belong to the internal payment order.",
+        409,
+      );
+    }
+
+    if (order.id !== payment.orderId) {
+      throw new PaymentError(
+        PaymentErrorCode.ORDER_MISMATCH,
+        "Payment does not belong to this order.",
+        409,
+      );
+    }
+
+    if (
+      payment.providerPaymentId &&
+      payment.providerPaymentId !== entity.id
+    ) {
+      throw new PaymentError(
+        PaymentErrorCode.OWNERSHIP_MISMATCH,
+        "Razorpay payment is already linked to a different provider payment.",
+        409,
+      );
+    }
+
+    if (
+      entity.amount !== payment.amountMinor ||
+      entity.amount !== order.totalMinor
+    ) {
+      throw new PaymentError(
+        PaymentErrorCode.AMOUNT_MISMATCH,
+        "Razorpay payment amount does not match the internal payment amount.",
+        409,
+        {
+          expectedAmountMinor:
+            payment.amountMinor,
+          orderAmountMinor: order.totalMinor,
+          providerAmountMinor:
+            entity.amount,
+        },
+      );
+    }
+
+    if (
+      entity.currency !== payment.currency ||
+      entity.currency !== order.currency
+    ) {
+      throw new PaymentError(
+        PaymentErrorCode.CURRENCY_MISMATCH,
+        "Razorpay payment currency does not match the internal payment currency.",
+        409,
+        {
+          expectedCurrency:
+            payment.currency,
+          orderCurrency: order.currency,
+          providerCurrency:
+            entity.currency,
+        },
+      );
+    }
   }
 
   private assertProviderPaymentMatches(

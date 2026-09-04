@@ -34,6 +34,14 @@ export interface VerifiedPayment {
   };
 }
 
+export interface PaymentStatus {
+  id: string;
+  orderId: string;
+  status: string;
+  amount: number;
+  currency: string;
+}
+
 interface ApiResponse<T> {
   data: T;
 }
@@ -66,6 +74,32 @@ async function postJson<T>(
           : {}),
       },
       body: JSON.stringify(body),
+    },
+  );
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      message ||
+        `Request failed with status ${response.status}`,
+    );
+  }
+
+  const payload =
+    (await response.json()) as ApiResponse<T>;
+
+  return payload.data;
+}
+
+async function getJson<T>(
+  path: string,
+  headers?: Record<string, string>,
+): Promise<T> {
+  const response = await fetch(
+    `${API_BASE_URL}${path}`,
+    {
+      method: "GET",
+      headers,
     },
   );
 
@@ -157,6 +191,18 @@ export async function verifyPayment(input: {
           .razorpay_signature,
     },
     undefined,
+    {
+      "x-customer-id": input.customerId,
+    },
+  );
+}
+
+export async function getPaymentStatus(input: {
+  paymentId: string;
+  customerId: string;
+}) {
+  return getJson<PaymentStatus>(
+    `/api/payments/${input.paymentId}`,
     {
       "x-customer-id": input.customerId,
     },

@@ -40,6 +40,13 @@ enum PaymentProvider {
   RAZORPAY
 }
 
+enum WebhookEventStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED
+}
+
 enum InventoryReservationStatus {
   ACTIVE
   RELEASED
@@ -202,6 +209,23 @@ model PaymentAttempt {
   @@unique([paymentId, attemptNumber])
   @@index([paymentId, createdAt])
   @@index([status, createdAt])
+}
+
+model WebhookEvent {
+  id          String             @id @default(uuid())
+  provider    PaymentProvider
+  eventId     String
+  eventType   String
+  payload     Json
+  receivedAt  DateTime           @default(now())
+  processedAt DateTime?
+  status      WebhookEventStatus @default(RECEIVED)
+  error       String?
+
+  @@unique([provider, eventId])
+  @@index([provider, eventType])
+  @@index([status, receivedAt])
+  @@index([receivedAt])
 }
 
 model InventoryReservation {

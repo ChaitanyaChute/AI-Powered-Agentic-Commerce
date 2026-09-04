@@ -234,8 +234,22 @@ export class PaymentController {
         );
       }
 
+      const customerId =
+        req.header("x-customer-id")?.trim();
+
+      if (!customerId) {
+        throw new AppError(
+          "Customer authentication is required.",
+          401,
+          "AUTHENTICATION_REQUIRED",
+        );
+      }
+
       const payment =
-        await this.paymentService.getPaymentById(id);
+        await this.paymentService.getPaymentStatusForCustomer(
+          id,
+          customerId,
+        );
 
       res.status(200).json({
         data: payment,

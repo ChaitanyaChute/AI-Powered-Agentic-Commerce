@@ -10,6 +10,7 @@ import jobsRoutes from "./modules/jobs/jobs.routes.js";
 import idempotencyRoutes from "./modules/idempotency/idempotency.routes.js";
 import { orderRouter } from "./modules/orders/index.js";
 import { createPaymentRouter } from "./modules/payments/payment.routes.js";
+import { createWebhookRouter } from "./modules/webhooks/index.js";
 import { RazorpayProvider } from "@repo/integrations";
 import type { PaymentProvider } from "@repo/shared";
 import { env } from "./config/env.js";
@@ -54,6 +55,8 @@ function createConfiguredPaymentProvider(): PaymentProvider {
 
 export const createApp = ():Express =>{
     const app = express();
+    const paymentProvider =
+        createConfiguredPaymentProvider();
 
     app.use(helmet());
 
@@ -63,15 +66,6 @@ export const createApp = ():Express =>{
             credentials: true
         }),
     );
-
-    app.use(express.json({limit:"1mb"}));
-
-    app.use(express.urlencoded(
-        {
-            extended:true,
-            limit:"1mb"
-        }
-    ))
 
     app.use(requestId)
 
@@ -101,6 +95,20 @@ export const createApp = ():Express =>{
                 }
         })
     );
+
+    app.use(
+        "/api/webhooks",
+        createWebhookRouter(paymentProvider),
+    );
+
+    app.use(express.json({limit:"1mb"}));
+
+    app.use(express.urlencoded(
+        {
+            extended:true,
+            limit:"1mb"
+        }
+    ))
     
     app.use(healthRoutes);
     app.use(jobsRoutes);
@@ -109,7 +117,7 @@ export const createApp = ():Express =>{
     app.use(
         "/api/payments",
         createPaymentRouter(
-            createConfiguredPaymentProvider(),
+            paymentProvider,
         ),
     );
 

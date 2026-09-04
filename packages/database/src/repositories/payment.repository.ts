@@ -59,6 +59,27 @@ export class PaymentRepository {
     });
   }
 
+  async updateProviderPaymentStatus(input: {
+    id: string;
+    providerPaymentId?: string;
+    status: Prisma.PaymentUpdateInput["status"];
+  }) {
+    return prisma.payment.update({
+      where: {
+        id: input.id,
+      },
+      data: {
+        ...(input.providerPaymentId
+          ? {
+              providerPaymentId:
+                input.providerPaymentId,
+            }
+          : {}),
+        status: input.status,
+      },
+    });
+  }
+
   async markVerified(input: {
     id: string;
     providerPaymentId: string;
@@ -79,6 +100,19 @@ export class PaymentRepository {
     return prisma.payment.findUnique({
       where: {
         providerPaymentId,
+      },
+    });
+  }
+
+  async findByProviderOrderId(
+    providerOrderId: string,
+  ) {
+    return prisma.payment.findFirst({
+      where: {
+        providerOrderId,
+      },
+      orderBy: {
+        createdAt: "desc",
       },
     });
   }

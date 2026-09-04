@@ -1600,6 +1600,444 @@ describe("PaymentService - createPaymentForOrder", () => {
   });
 });
 
+describe("PaymentService - getPaymentStatusForCustomer", () => {
+  function createRepositories() {
+    return {
+      orderRepository: {
+        findByIdWithItems: vi.fn(),
+      },
+      paymentRepository: {
+        getPaymentById: vi.fn(),
+      },
+    };
+  }
+
+  function createProvider(): PaymentProvider {
+    return {
+      name: "RAZORPAY",
+      createOrder: vi.fn(),
+      getPayment: vi.fn(),
+      verifyPayment: vi.fn(),
+      capturePayment: vi.fn(),
+      refundPayment: vi.fn(),
+    };
+  }
+
+  const payment = {
+    id: "pay_internal_123",
+    orderId: "ord_123",
+    provider: "RAZORPAY",
+    providerOrderId: "order_rzp_123",
+    providerPaymentId: "pay_rzp_123",
+    amountMinor: 6949800,
+    currency: "INR",
+    status: "CAPTURED",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
+  const order = {
+    id: "ord_123",
+    orderNumber: "ORD-123",
+    customerId: "customer-a",
+    status: "PAID",
+    currency: "INR",
+    subtotalMinor: 6949800,
+    totalMinor: 6949800,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    items: [],
+  };
+
+  it("returns only the frontend-safe payment status fields", async () => {
+    const {
+      orderRepository,
+      paymentRepository,
+    } = createRepositories();
+
+    paymentRepository.getPaymentById.mockResolvedValue(payment);
+    orderRepository.findByIdWithItems.mockResolvedValue(order);
+
+    const service = new PaymentService(
+      orderRepository as any,
+      paymentRepository as any,
+      createProvider(),
+    );
+
+    await expect(
+      service.getPaymentStatusForCustomer(
+        payment.id,
+        order.customerId,
+      ),
+    ).resolves.toEqual({
+      id: "pay_internal_123",
+      orderId: "ord_123",
+      status: "CAPTURED",
+      amount: 6949800,
+      currency: "INR",
+    });
+  });
+
+  it("rejects payment status lookup for another customer", async () => {
+    const {
+      orderRepository,
+      paymentRepository,
+    } = createRepositories();
+
+    paymentRepository.getPaymentById.mockResolvedValue(payment);
+    orderRepository.findByIdWithItems.mockResolvedValue(order);
+
+    const service = new PaymentService(
+      orderRepository as any,
+      paymentRepository as any,
+      createProvider(),
+    );
+
+    await expect(
+      service.getPaymentStatusForCustomer(
+        payment.id,
+        "customer-b",
+      ),
+    ).rejects.toMatchObject({
+      code: PaymentErrorCode.OWNERSHIP_MISMATCH,
+      statusCode: 403,
+    });
+  });
+
+  it("rejects payment status lookup for a missing payment", async () => {
+    const {
+      orderRepository,
+      paymentRepository,
+    } = createRepositories();
+
+    paymentRepository.getPaymentById.mockResolvedValue(null);
+
+    const service = new PaymentService(
+      orderRepository as any,
+      paymentRepository as any,
+      createProvider(),
+    );
+
+    await expect(
+      service.getPaymentStatusForCustomer(
+        "missing-payment",
+        "customer-a",
+      ),
+    ).rejects.toMatchObject({
+      code: PaymentErrorCode.NOT_FOUND,
+      statusCode: 404,
+    });
+
+    expect(
+      orderRepository.findByIdWithItems,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("rejects payment status lookup when the backing order is missing", async () => {
+    const {
+      orderRepository,
+      paymentRepository,
+    } = createRepositories();
+
+    paymentRepository.getPaymentById.mockResolvedValue(payment);
+    orderRepository.findByIdWithItems.mockResolvedValue(null);
+
+    const service = new PaymentService(
+      orderRepository as any,
+      paymentRepository as any,
+      createProvider(),
+    );
+
+    await expect(
+      service.getPaymentStatusForCustomer(
+        payment.id,
+        order.customerId,
+      ),
+    ).rejects.toMatchObject({
+      code: "ORDER_NOT_FOUND",
+      statusCode: 404,
+    });
+  });
+});
+
+describe("PaymentService - processRazorpayWebhook", () => {
+  function createRepositories() {
+    return {
+      orderRepository: {
+        findByIdWithItems: vi.fn(),
+        update: vi.fn(),
+      },
+      paymentRepository: {
+        findByProviderPaymentId: vi.fn(),
+        findByProviderOrderId: vi.fn(),
+        updateProviderPaymentStatus:
+          vi.fn(),
+        updatePaymentStatus: vi.fn(),
+        getPaymentById: vi.fn(),
+      },
+    };
+  }
+
+  function createProvider(): PaymentProvider {
+    return {
+      name: "RAZORPAY",
+      createOrder: vi.fn(),
+      getPayment: vi.fn(),
+      verifyPayment: vi.fn(),
+      capturePayment: vi.fn(),
+      refundPayment: vi.fn(),
+    };
+  }
+
+  const payment = {
+    id: "pay_internal_123",
+    orderId: "ord_123",
+    provider: "RAZORPAY",
+    providerOrderId: "order_rzp_123",
+    providerPaymentId: null,
+    amountMinor: 6949800,
+    currency: "INR",
+    status: "PENDING",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
+  const order = {
+    id: "ord_123",
+    orderNumber: "ORD-123",
+    customerId: "customer-a",
+    status: "PAYMENT_PENDING",
+    currency: "INR",
+    subtotalMinor: 6949800,
+    totalMinor: 6949800,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    items: [],
+  };
+
+  const paymentEntity = {
+    id: "pay_rzp_123",
+    order_id: "order_rzp_123",
+    amount: 6949800,
+    currency: "INR",
+    status: "authorized",
+  };
+
+  it("captures a late authorized Razorpay payment", async () => {
+    const {
+      orderRepository,
+      paymentRepository,
+    } = createRepositories();
+    const provider = createProvider();
+
+    paymentRepository.findByProviderPaymentId.mockResolvedValue(null);
+    paymentRepository.findByProviderOrderId.mockResolvedValue(payment);
+    orderRepository.findByIdWithItems.mockResolvedValue(order);
+    paymentRepository.updateProviderPaymentStatus.mockResolvedValue({
+      ...payment,
+      providerPaymentId: paymentEntity.id,
+      status: "AUTHORIZED",
+    });
+    paymentRepository.getPaymentById.mockResolvedValue({
+      ...payment,
+      providerPaymentId: paymentEntity.id,
+      status: "AUTHORIZED",
+    });
+    provider.capturePayment = vi
+      .fn()
+      .mockResolvedValue({
+        providerPaymentId: paymentEntity.id,
+        providerOrderId:
+          paymentEntity.order_id,
+        amountMinor: paymentEntity.amount,
+        currency: paymentEntity.currency,
+        status: "captured",
+      });
+    paymentRepository.updatePaymentStatus.mockResolvedValue({
+      ...payment,
+      providerPaymentId: paymentEntity.id,
+      status: "CAPTURED",
+    });
+    orderRepository.update.mockResolvedValue({
+      ...order,
+      status: "PAID",
+    });
+
+    const service = new PaymentService(
+      orderRepository as any,
+      paymentRepository as any,
+      provider,
+    );
+
+    await expect(
+      service.processRazorpayWebhook({
+        event: "payment.authorized",
+        payload: {
+          payment: {
+            entity: paymentEntity,
+          },
+        },
+      }),
+    ).resolves.toMatchObject({
+      event: "payment.authorized",
+      processed: true,
+      paymentId: payment.id,
+      orderId: order.id,
+    });
+
+    expect(
+      paymentRepository.updateProviderPaymentStatus,
+    ).toHaveBeenCalledWith({
+      id: payment.id,
+      providerPaymentId: paymentEntity.id,
+      status: "AUTHORIZED",
+    });
+    expect(provider.capturePayment).toHaveBeenCalledWith({
+      providerPaymentId: paymentEntity.id,
+      amountMinor: payment.amountMinor,
+      currency: payment.currency,
+    });
+  });
+
+  it("marks captured Razorpay payment webhooks as paid", async () => {
+    const {
+      orderRepository,
+      paymentRepository,
+    } = createRepositories();
+    const provider = createProvider();
+
+    paymentRepository.findByProviderPaymentId.mockResolvedValue(null);
+    paymentRepository.findByProviderOrderId.mockResolvedValue(payment);
+    orderRepository.findByIdWithItems.mockResolvedValue(order);
+    paymentRepository.updateProviderPaymentStatus.mockResolvedValue({
+      ...payment,
+      providerPaymentId: paymentEntity.id,
+      status: "CAPTURED",
+    });
+
+    const service = new PaymentService(
+      orderRepository as any,
+      paymentRepository as any,
+      provider,
+    );
+
+    await service.processRazorpayWebhook({
+      event: "payment.captured",
+      payload: {
+        payment: {
+          entity: {
+            ...paymentEntity,
+            status: "captured",
+          },
+        },
+      },
+    });
+
+    expect(
+      paymentRepository.updateProviderPaymentStatus,
+    ).toHaveBeenCalledWith({
+      id: payment.id,
+      providerPaymentId: paymentEntity.id,
+      status: "CAPTURED",
+    });
+    expect(orderRepository.update).toHaveBeenCalledWith(
+      order.id,
+      { status: "PAID" },
+    );
+  });
+
+  it("does not downgrade a captured payment from a failed webhook", async () => {
+    const {
+      orderRepository,
+      paymentRepository,
+    } = createRepositories();
+    const provider = createProvider();
+    const capturedPayment = {
+      ...payment,
+      providerPaymentId: paymentEntity.id,
+      status: "CAPTURED",
+    };
+
+    paymentRepository.findByProviderPaymentId.mockResolvedValue(
+      capturedPayment,
+    );
+    orderRepository.findByIdWithItems.mockResolvedValue({
+      ...order,
+      status: "PAID",
+    });
+
+    const service = new PaymentService(
+      orderRepository as any,
+      paymentRepository as any,
+      provider,
+    );
+
+    await service.processRazorpayWebhook({
+      event: "payment.failed",
+      payload: {
+        payment: {
+          entity: {
+            ...paymentEntity,
+            status: "failed",
+          },
+        },
+      },
+    });
+
+    expect(
+      paymentRepository.updateProviderPaymentStatus,
+    ).not.toHaveBeenCalled();
+    expect(orderRepository.update).not.toHaveBeenCalled();
+  });
+
+  it("marks the internal order paid from order.paid", async () => {
+    const {
+      orderRepository,
+      paymentRepository,
+    } = createRepositories();
+    const provider = createProvider();
+
+    paymentRepository.findByProviderOrderId.mockResolvedValue(payment);
+    orderRepository.findByIdWithItems.mockResolvedValue(order);
+    paymentRepository.updatePaymentStatus.mockResolvedValue({
+      ...payment,
+      status: "CAPTURED",
+    });
+
+    const service = new PaymentService(
+      orderRepository as any,
+      paymentRepository as any,
+      provider,
+    );
+
+    await service.processRazorpayWebhook({
+      event: "order.paid",
+      payload: {
+        order: {
+          entity: {
+            id: payment.providerOrderId,
+            status: "paid",
+            amount_paid:
+              payment.amountMinor,
+            currency: payment.currency,
+          },
+        },
+      },
+    });
+
+    expect(
+      paymentRepository.updatePaymentStatus,
+    ).toHaveBeenCalledWith(
+      payment.id,
+      "CAPTURED",
+    );
+    expect(orderRepository.update).toHaveBeenCalledWith(
+      order.id,
+      { status: "PAID" },
+    );
+  });
+});
+
 describe("PaymentService - verifyCheckoutPayment", () => {
   function createRepositories() {
     return {

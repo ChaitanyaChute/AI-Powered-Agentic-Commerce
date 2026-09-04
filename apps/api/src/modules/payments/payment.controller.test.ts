@@ -12,6 +12,7 @@ describe("PaymentController - payment idempotency", () => {
     const paymentService = {
       createPaymentForOrder: vi.fn(),
       getPaymentById: vi.fn(),
+      getPaymentStatusForCustomer: vi.fn(),
       verifyCheckoutPayment: vi.fn(),
     };
 
@@ -532,6 +533,92 @@ describe("PaymentController - payment idempotency", () => {
 
     expect(
       paymentService.verifyCheckoutPayment,
+    ).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledWith(
+      expect.objectContaining({
+        statusCode: 401,
+        code: "AUTHENTICATION_REQUIRED",
+      }),
+    );
+  });
+
+  it("returns a payment status for the authenticated customer", async () => {
+    const { controller, paymentService } =
+      createMocks();
+
+    const paymentStatus = {
+      id: "payment-1",
+      orderId: "order-1",
+      status: "CAPTURED",
+      amount: 6949800,
+      currency: "INR",
+    };
+
+    paymentService.getPaymentStatusForCustomer.mockResolvedValue(
+      paymentStatus,
+    );
+
+    const req = createRequest(
+      undefined,
+      undefined,
+      {
+        id: "payment-1",
+      },
+      {
+        "x-customer-id": "customer-1",
+      },
+    );
+
+    const res = createResponse();
+    const next = createNext();
+
+    await controller.getPayment(req, res, next);
+
+    expect(
+      paymentService.getPaymentStatusForCustomer,
+    ).toHaveBeenCalledWith(
+      "payment-1",
+      "customer-1",
+    );
+    expect(res.status).toHaveBeenCalledWith(
+      200,
+    );
+    expect(res.json).toHaveBeenCalledWith({
+      data: paymentStatus,
+    });
+    expect(
+      Object.keys(
+        res.json.mock.calls[0][0].data,
+      ).sort(),
+    ).toEqual([
+      "amount",
+      "currency",
+      "id",
+      "orderId",
+      "status",
+    ]);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("rejects payment status lookup without customer authentication", async () => {
+    const { controller, paymentService } =
+      createMocks();
+
+    const req = createRequest(
+      undefined,
+      undefined,
+      {
+        id: "payment-1",
+      },
+    );
+
+    const res = createResponse();
+    const next = createNext();
+
+    await controller.getPayment(req, res, next);
+
+    expect(
+      paymentService.getPaymentStatusForCustomer,
     ).not.toHaveBeenCalled();
     expect(next).toHaveBeenCalledWith(
       expect.objectContaining({

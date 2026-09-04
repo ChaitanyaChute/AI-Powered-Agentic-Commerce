@@ -2,9 +2,9 @@ import { logger } from "../../lib/logger.js";
 
 export interface AuditEvent {
   type: string;
-  paymentId: string;
-  orderId: string;
-  customerId: string;
+  paymentId?: string;
+  orderId?: string;
+  customerId?: string;
   metadata?: Record<string, unknown>;
 }
 

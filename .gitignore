@@ -12,6 +12,7 @@ coverage/
 .turbo/
 
 *.log
+*.tsbuildinfo
 
 .DS_Store
 
