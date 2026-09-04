@@ -16,7 +16,7 @@ import type {
   RefundPaymentResult,
   VerifyPaymentInput,
   VerifyPaymentResult,
-} from "./payment-provider.js";
+} from "@repo/shared"
 
 class FakePaymentProvider
   implements PaymentProvider

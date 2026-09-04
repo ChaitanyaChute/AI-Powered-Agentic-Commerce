@@ -1,4 +1,4 @@
-import type { Inventory,Prisma } from "@prisma/client";
+import type { Inventory, Prisma } from "@prisma/client";
 import { prisma } from "../client.js";
 
 export class InventoryRepository {
@@ -8,7 +8,9 @@ export class InventoryRepository {
       | Prisma.TransactionClient = prisma,
   ) {}
 
-  async findByProductId(productId: string): Promise<Inventory | null> {
+  async findByProductId(
+    productId: string,
+  ): Promise<Inventory | null> {
     return this.db.inventory.findUnique({
       where: {
         productId,
@@ -17,10 +19,11 @@ export class InventoryRepository {
   }
 
   async create(
-    productId: string,quantity = 0,
-  ):Promise<Inventory> {
+    productId: string,
+    quantity = 0,
+  ): Promise<Inventory> {
     return this.db.inventory.create({
-      data:{
+      data: {
         productId,
         quantity,
       },
@@ -28,93 +31,114 @@ export class InventoryRepository {
   }
 
   async updateQuantity(
-    productId: string,quantity: number,
-  ):Promise<Inventory> {
+    productId: string,
+    quantity: number,
+  ): Promise<Inventory> {
     return this.db.inventory.update({
-      where:{
+      where: {
         productId,
       },
-      data:{
+      data: {
         quantity,
       },
     });
   }
 
   async updateReserved(
-    productId:string,
-    reserved:number,
-  ):Promise<Inventory> {
+    productId: string,
+    reserved: number,
+  ): Promise<Inventory> {
     return this.db.inventory.update({
-      where:{
+      where: {
         productId,
       },
-      data:{
+      data: {
         reserved,
       },
     });
   }
+
+  /**
+   * Atomically reserve inventory.
+   *
+   * The database itself verifies:
+   *
+   * quantity - reserved >= requested quantity
+   *
+   * before increasing reserved.
+   *
+   * This prevents concurrent checkout requests from
+   * reserving the same inventory.
+   */
   async reserve(
-  inventoryId: string,
-  quantity: number,
-) {
-  if (!Number.isInteger(quantity) || quantity <= 0) {
-    throw new Error("Reservation quantity must be positive.");
+    inventoryId: string,
+    quantity: number,
+  ): Promise<Inventory> {
+    if (
+      !Number.isInteger(quantity) ||
+      quantity <= 0
+    ) {
+      throw new Error(
+        "Reservation quantity must be positive.",
+      );
+    }
+
+    const result = await this.db.$executeRaw`
+      UPDATE "Inventory"
+      SET
+        "reserved" = "reserved" + ${quantity},
+        "updatedAt" = CURRENT_TIMESTAMP
+      WHERE
+        "id" = ${inventoryId}
+        AND "quantity" - "reserved" >= ${quantity}
+    `;
+
+    if (result !== 1) {
+      throw new Error(
+        "Insufficient inventory.",
+      );
+    }
+
+    return this.db.inventory.findUniqueOrThrow({
+      where: {
+        id: inventoryId,
+      },
+    });
   }
 
-  const result = await this.db.$executeRaw`
-    UPDATE "Inventory"
-    SET
-      "reserved" = "reserved" + ${quantity},
-      "updatedAt" = CURRENT_TIMESTAMP
-    WHERE
-      "id" = ${inventoryId}
-      AND "quantity" - "reserved" >= ${quantity}
-  `;
+  async release(
+    inventoryId: string,
+    quantity: number,
+  ): Promise<Inventory> {
+    if (
+      !Number.isInteger(quantity) ||
+      quantity <= 0
+    ) {
+      throw new Error(
+        "Release quantity must be positive.",
+      );
+    }
 
-  if (result !== 1) {
-    throw new Error("Insufficient inventory.");
+    const result = await this.db.$executeRaw`
+      UPDATE "Inventory"
+      SET
+        "reserved" = "reserved" - ${quantity},
+        "updatedAt" = CURRENT_TIMESTAMP
+      WHERE
+        "id" = ${inventoryId}
+        AND "reserved" >= ${quantity}
+    `;
+
+    if (result !== 1) {
+      throw new Error(
+        "Unable to release inventory.",
+      );
+    }
+
+    return this.db.inventory.findUniqueOrThrow({
+      where: {
+        id: inventoryId,
+      },
+    });
   }
-
-  return this.db.inventory.findUniqueOrThrow({
-    where: {
-      id: inventoryId,
-    },
-  });
-}
-
-async release(
-  inventoryId: string,
-  quantity: number,
-) {
-  if (
-    !Number.isInteger(quantity) ||
-    quantity <= 0
-  ) {
-    throw new Error(
-      "Release quantity must be positive.",
-    );
-  }
-
-  const result = await this.db.$executeRaw`
-    UPDATE "Inventory"
-    SET
-      "reserved" = "reserved" - ${quantity},
-      "updatedAt" = CURRENT_TIMESTAMP
-    WHERE
-      "id" = ${inventoryId}
-      AND "reserved" >= ${quantity}
-  `;
-
-  if (result !== 1) {
-    throw new Error(
-      "Unable to release inventory.",
-    );
-  }
-
-  return this.db.inventory.findUniqueOrThrow({
-    where: {
-      id: inventoryId,
-    },
-  });
-}
 }

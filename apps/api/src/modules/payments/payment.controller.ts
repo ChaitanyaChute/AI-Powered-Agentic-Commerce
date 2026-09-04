@@ -3,11 +3,15 @@ import type {
   Response,
   NextFunction,
 } from "express";
-import { createPaymentSchema } from "./payment.schemas.js";
+import {
+  createPaymentSchema,
+  verifyPaymentSchema,
+} from "./payment.schemas.js";
 import { createHash } from "node:crypto";
 import { AppError } from "../../middleware/error-handler.js";
 import { IdempotencyService } from "../../lib/idempotency/idempotency.service.js";
 import { PaymentService } from "./payment.service.js";
+import { env } from "../../config/env.js";
 
 export class PaymentController {
   constructor(
@@ -50,7 +54,12 @@ export class PaymentController {
           );
 
         res.status(201).json({
-          data: result,
+          data: {
+            ...result,
+            checkout: this.toCheckoutData(
+              result,
+            ),
+          },
         });
 
         return;
@@ -95,7 +104,9 @@ export class PaymentController {
           existing.status === "COMPLETED"
         ) {
           res.status(201).json({
-            data: existing.response,
+            data: this.withCheckoutData(
+              existing.response,
+            ),
           });
 
           return;
@@ -132,7 +143,12 @@ export class PaymentController {
         );
 
         res.status(201).json({
-          data: result,
+          data: {
+            ...result,
+            checkout: this.toCheckoutData(
+              result,
+            ),
+          },
         });
       } catch (error) {
         await this.idempotencyService.fail(
@@ -143,6 +159,57 @@ export class PaymentController {
 
         throw error;
       }
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  verifyPayment = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const { paymentId } = req.params;
+
+      if (
+        typeof paymentId !== "string" ||
+        paymentId.length === 0
+      ) {
+        throw new AppError(
+          "Payment ID is required.",
+          400,
+          "PAYMENT_ID_REQUIRED",
+        );
+      }
+
+      const customerId =
+        req.header("x-customer-id")?.trim();
+
+      if (!customerId) {
+        throw new AppError(
+          "Customer authentication is required.",
+          401,
+          "AUTHENTICATION_REQUIRED",
+        );
+      }
+
+      const input = verifyPaymentSchema.parse(
+        req.body,
+      );
+
+      const result =
+        await this.paymentService.verifyCheckoutPayment(
+          {
+            paymentId,
+            customerId,
+            ...input,
+          },
+        );
+
+      res.status(200).json({
+        data: result,
+      });
     } catch (error) {
       next(error);
     }
@@ -177,4 +244,49 @@ export class PaymentController {
       next(error);
     }
   };
+
+  private toCheckoutData(result: Awaited<
+    ReturnType<
+      PaymentService["createPaymentForOrder"]
+    >
+  >) {
+    if (!result.payment) {
+      throw new AppError(
+        "Payment was not created.",
+        500,
+        "PAYMENT_NOT_CREATED",
+      );
+    }
+
+    return {
+      paymentId: result.payment.id,
+      razorpayOrderId:
+        result.providerOrder.providerOrderId,
+      amount: result.providerOrder.amountMinor,
+      currency: result.providerOrder.currency,
+      keyId: env.RAZORPAY_KEY_ID ?? "",
+    };
+  }
+
+  private withCheckoutData(response: unknown) {
+    if (
+      typeof response !== "object" ||
+      response === null ||
+      !("payment" in response) ||
+      !("providerOrder" in response)
+    ) {
+      return response;
+    }
+
+    return {
+      ...response,
+      checkout: this.toCheckoutData(
+        response as Awaited<
+          ReturnType<
+            PaymentService["createPaymentForOrder"]
+          >
+        >,
+      ),
+    };
+  }
 }

@@ -28,9 +28,12 @@ enum OrderStatus {
 enum PaymentStatus {
   CREATED
   PENDING
-  SUCCESS
   FAILED
   UNKNOWN
+  REFUND_PENDING
+  REFUNDED
+  AUTHORIZED
+  CAPTURED
 }
 
 enum PaymentProvider {

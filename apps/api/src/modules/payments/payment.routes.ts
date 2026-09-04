@@ -7,11 +7,11 @@ import {
 
 import { redis } from "../../config/redis.js";
 import { IdempotencyService } from "../../lib/idempotency/idempotency.service.js";
+import { AuditService } from "../audit/audit.service.js";
 
 import { PaymentController } from "./payment.controller.js";
 import { PaymentService } from "./payment.service.js";
-
-import type { PaymentProvider } from "./payment-provider.js";
+import type { PaymentProvider } from "@repo/shared";
 
 export function createPaymentRouter(
   paymentProvider: PaymentProvider,
@@ -32,6 +32,7 @@ export function createPaymentRouter(
       orderRepository,
       paymentRepository,
       paymentProvider,
+      new AuditService(),
     );
 
   const paymentController =
@@ -43,6 +44,11 @@ export function createPaymentRouter(
   router.post(
     "/",
     paymentController.createPayment,
+  );
+
+  router.post(
+    "/:paymentId/verify",
+    paymentController.verifyPayment,
   );
 
   router.get(

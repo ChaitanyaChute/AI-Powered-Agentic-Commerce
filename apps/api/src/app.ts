@@ -9,6 +9,47 @@ import { healthRoutes } from "./modules/health/index.js";
 import jobsRoutes from "./modules/jobs/jobs.routes.js";
 import idempotencyRoutes from "./modules/idempotency/idempotency.routes.js";
 import { orderRouter } from "./modules/orders/index.js";
+import { createPaymentRouter } from "./modules/payments/payment.routes.js";
+import { RazorpayProvider } from "@repo/integrations";
+import type { PaymentProvider } from "@repo/shared";
+import { env } from "./config/env.js";
+
+function createConfiguredPaymentProvider(): PaymentProvider {
+    if (
+        env.RAZORPAY_KEY_ID &&
+        env.RAZORPAY_KEY_SECRET &&
+        env.RAZORPAY_WEBHOOK_SECRET
+    ) {
+        return new RazorpayProvider({
+            keyId: env.RAZORPAY_KEY_ID,
+            keySecret: env.RAZORPAY_KEY_SECRET,
+            webhookSecret: env.RAZORPAY_WEBHOOK_SECRET,
+        });
+    }
+
+    return {
+        name: "RAZORPAY",
+        async createOrder() {
+            throw new Error("Razorpay is not configured.");
+        },
+        async getPayment() {
+            throw new Error("Razorpay is not configured.");
+        },
+        async verifyPayment() {
+            return {
+                verified: false,
+                providerPaymentId: "",
+                providerOrderId: "",
+            };
+        },
+        async capturePayment() {
+            throw new Error("Razorpay is not configured.");
+        },
+        async refundPayment() {
+            throw new Error("Razorpay is not configured.");
+        },
+    };
+}
 
 
 export const createApp = ():Express =>{
@@ -65,6 +106,12 @@ export const createApp = ():Express =>{
     app.use(jobsRoutes);
     app.use(idempotencyRoutes);
     app.use("/api/orders", orderRouter);
+    app.use(
+        "/api/payments",
+        createPaymentRouter(
+            createConfiguredPaymentProvider(),
+        ),
+    );
 
     app.use(errorHandler)
 

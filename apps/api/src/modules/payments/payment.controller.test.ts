@@ -12,6 +12,7 @@ describe("PaymentController - payment idempotency", () => {
     const paymentService = {
       createPaymentForOrder: vi.fn(),
       getPaymentById: vi.fn(),
+      verifyCheckoutPayment: vi.fn(),
     };
 
     const idempotencyService = {
@@ -36,11 +37,17 @@ describe("PaymentController - payment idempotency", () => {
   function createRequest(
     body: unknown,
     idempotencyKey?: string,
+    params: Record<string, string> = {},
+    headers: Record<string, string | undefined> = {},
   ) {
     return {
+      params,
       body,
-      header: vi.fn().mockReturnValue(
-        idempotencyKey,
+      header: vi.fn(
+        (name: string) =>
+          name === "Idempotency-Key"
+            ? idempotencyKey
+            : headers[name.toLowerCase()],
       ),
     } as any;
   }
@@ -74,6 +81,17 @@ describe("PaymentController - payment idempotency", () => {
       providerOrderId: "rzp_order_123",
       amountMinor: 100000,
       currency: "INR",
+    },
+  };
+
+  const paymentResultWithCheckout = {
+    ...paymentResult,
+    checkout: {
+      paymentId: "payment-1",
+      razorpayOrderId: "rzp_order_123",
+      amount: 100000,
+      currency: "INR",
+      keyId: "",
     },
   };
 
@@ -127,7 +145,7 @@ describe("PaymentController - payment idempotency", () => {
     );
 
     expect(res.json).toHaveBeenCalledWith({
-      data: paymentResult,
+      data: paymentResultWithCheckout,
     });
 
     expect(next).not.toHaveBeenCalled();
@@ -200,7 +218,7 @@ describe("PaymentController - payment idempotency", () => {
     );
 
     expect(res.json).toHaveBeenCalledWith({
-      data: paymentResult,
+      data: paymentResultWithCheckout,
     });
 
     expect(next).not.toHaveBeenCalled();
@@ -421,6 +439,105 @@ describe("PaymentController - payment idempotency", () => {
 
     expect(next).toHaveBeenCalledWith(
       paymentError,
+    );
+  });
+
+  it("verifies a payment using the route payment id and authenticated customer", async () => {
+    const { controller, paymentService } =
+      createMocks();
+
+    const req = createRequest(
+      {
+        razorpayPaymentId: "pay_123",
+        razorpayOrderId: "order_123",
+        razorpaySignature: "sig_123",
+      },
+      undefined,
+      {
+        paymentId: "payment-1",
+      },
+      {
+        "x-customer-id": "customer-1",
+      },
+    );
+
+    const res = createResponse();
+    const next = createNext();
+
+    paymentService.verifyCheckoutPayment.mockResolvedValue(
+      {
+        verified: true,
+        payment: {
+          id: "payment-1",
+          status: "SUCCESS",
+        },
+      },
+    );
+
+    await controller.verifyPayment(
+      req,
+      res,
+      next,
+    );
+
+    expect(
+      paymentService.verifyCheckoutPayment,
+    ).toHaveBeenCalledWith({
+      paymentId: "payment-1",
+      customerId: "customer-1",
+      razorpayPaymentId: "pay_123",
+      razorpayOrderId: "order_123",
+      razorpaySignature: "sig_123",
+    });
+
+    expect(res.status).toHaveBeenCalledWith(
+      200,
+    );
+    expect(res.json).toHaveBeenCalledWith({
+      data: {
+        verified: true,
+        payment: {
+          id: "payment-1",
+          status: "SUCCESS",
+        },
+      },
+    });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("rejects payment verification without customer authentication", async () => {
+    const { controller, paymentService } =
+      createMocks();
+
+    const req = createRequest(
+      {
+        razorpayPaymentId: "pay_123",
+        razorpayOrderId: "order_123",
+        razorpaySignature: "sig_123",
+      },
+      undefined,
+      {
+        paymentId: "payment-1",
+      },
+    );
+
+    const res = createResponse();
+    const next = createNext();
+
+    await controller.verifyPayment(
+      req,
+      res,
+      next,
+    );
+
+    expect(
+      paymentService.verifyCheckoutPayment,
+    ).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledWith(
+      expect.objectContaining({
+        statusCode: 401,
+        code: "AUTHENTICATION_REQUIRED",
+      }),
     );
   });
 });
